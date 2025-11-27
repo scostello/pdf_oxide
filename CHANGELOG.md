@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Annotations API** - Extract PDF annotations including comments, highlights, and links
 - **ASCII85Decode filter** - Support for ASCII85-encoded streams (already implemented)
 
-## [0.1.1] - 2025-11-25
+## [0.1.2] - 2025-11-26
 
 ### Added
 - **OCR Feature** - Optical Character Recognition for scanned PDF text extraction
@@ -24,14 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `OcrEngine` API with configurable detector and recognizer models
   - Python bindings for OCR functionality via PyO3
   - Feature-gated with `ocr` feature flag (optional dependency)
-- **Cross-Platform Binary Distribution**
-  - Multi-platform builds: Linux (glibc/musl, ARM64), macOS (x64/ARM64), Windows
-  - Automated GitHub Actions release workflow
-  - Pre-built binaries for all 8 CLI tools bundled per platform
-  - Python wheel builds for multiple architectures
-- **CLI Examples**
-  - `examples/ocr_scanned_pdf.rs` - Rust CLI for OCR processing
-  - `examples/ocr_example.py` - Python example for OCR integration
+- **Python 3.13 Support** - Full support for Python 3.13 with maturin wheel builds
 
 ### Fixed
 - **Clippy warnings** - Fixed unnecessary type casts, manual clamp usage, collapsible conditions
@@ -41,6 +34,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 16 integration tests for OCR engine (13 unit, 3 model-dependent)
 - Full SOLID principle compliance for CI/CD pipeline architecture
 - Comprehensive build pipeline documentation in `docs/CROSS_PLATFORM_BUILD_PIPELINE.md`
+- Python wheel builds for 3.8, 3.9, 3.10, 3.11, 3.12, 3.13
+
+## [0.1.1] - 2025-11-25
+
+### Added
+- **Cross-Platform Binary Distribution**
+  - Multi-platform builds: Linux (glibc/musl, ARM64), macOS (x64/ARM64), Windows
+  - Automated GitHub Actions release workflow
+  - Pre-built binaries for all 8 CLI tools bundled per platform
+  - Python wheel builds for multiple architectures
 
 ## [0.1.0] - 2025-10-30
 
