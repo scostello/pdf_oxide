@@ -16,6 +16,7 @@ pub struct ObjectSerializer {
     /// Whether to use compact formatting (minimal whitespace)
     compact: bool,
     /// Current indentation level for pretty printing
+    #[allow(dead_code)]
     indent_level: usize,
 }
 
@@ -50,7 +51,7 @@ impl ObjectSerializer {
     /// Format: `{id} {gen} obj\n{object}\nendobj\n`
     pub fn serialize_indirect(&self, id: u32, gen: u16, obj: &Object) -> Vec<u8> {
         let mut buf = Vec::new();
-        write!(buf, "{} {} obj\n", id, gen).unwrap();
+        writeln!(buf, "{} {} obj", id, gen).unwrap();
         self.write_object(&mut buf, obj).unwrap();
         write!(buf, "\nendobj\n").unwrap();
         buf
@@ -94,7 +95,7 @@ impl ObjectSerializer {
         // Check if data is printable ASCII
         let is_printable = data
             .iter()
-            .all(|&b| b == b'\n' || b == b'\r' || b == b'\t' || (b >= 0x20 && b <= 0x7E));
+            .all(|&b| b == b'\n' || b == b'\r' || b == b'\t' || (0x20..=0x7E).contains(&b));
 
         if is_printable {
             // Use literal string
@@ -190,7 +191,7 @@ impl ObjectSerializer {
         }
 
         if !self.compact && !dict.is_empty() {
-            write!(w, "\n")?;
+            writeln!(w)?;
         }
         write!(w, ">>")
     }
@@ -299,7 +300,7 @@ mod tests {
     #[test]
     fn test_serialize_real() {
         let s = ObjectSerializer::new();
-        assert_eq!(s.serialize_to_string(&Object::Real(3.14159)), "3.14159");
+        assert_eq!(s.serialize_to_string(&Object::Real(3.14258)), "3.14258");
         assert_eq!(s.serialize_to_string(&Object::Real(1.0)), "1");
         assert_eq!(s.serialize_to_string(&Object::Real(0.5)), "0.5");
     }

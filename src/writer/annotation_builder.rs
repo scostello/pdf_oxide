@@ -1,0 +1,531 @@
+//! Annotation builder for PDF generation.
+//!
+//! This module provides support for creating PDF annotations,
+//! particularly link annotations for hyperlinks.
+//! Per PDF spec Section 12.5 (Annotations).
+//!
+//! # Example
+//!
+//! ```ignore
+//! use pdf_oxide::writer::{LinkAnnotation, AnnotationBuilder};
+//! use pdf_oxide::geometry::Rect;
+//!
+//! let link = LinkAnnotation::uri(
+//!     Rect::new(72.0, 720.0, 100.0, 12.0),
+//!     "https://example.com",
+//! );
+//! ```
+
+use crate::geometry::Rect;
+use crate::object::{Object, ObjectRef};
+use std::collections::HashMap;
+
+/// Border style for annotations.
+#[derive(Debug, Clone, Copy)]
+pub struct BorderStyle {
+    /// Horizontal corner radius
+    pub horizontal_radius: f32,
+    /// Vertical corner radius
+    pub vertical_radius: f32,
+    /// Border width
+    pub width: f32,
+    /// Dash pattern (if dashed)
+    pub dash: Option<(f32, f32)>,
+}
+
+impl Default for BorderStyle {
+    fn default() -> Self {
+        Self {
+            horizontal_radius: 0.0,
+            vertical_radius: 0.0,
+            width: 0.0, // No visible border by default
+            dash: None,
+        }
+    }
+}
+
+impl BorderStyle {
+    /// Create a border style with no visible border.
+    pub fn none() -> Self {
+        Self::default()
+    }
+
+    /// Create a solid border with specified width.
+    pub fn solid(width: f32) -> Self {
+        Self {
+            width,
+            ..Default::default()
+        }
+    }
+
+    /// Create a dashed border.
+    pub fn dashed(width: f32, dash_length: f32, gap_length: f32) -> Self {
+        Self {
+            width,
+            dash: Some((dash_length, gap_length)),
+            ..Default::default()
+        }
+    }
+
+    /// Set corner radius.
+    pub fn with_radius(mut self, radius: f32) -> Self {
+        self.horizontal_radius = radius;
+        self.vertical_radius = radius;
+        self
+    }
+
+    /// Convert to PDF Border array.
+    pub fn to_border_array(&self) -> Object {
+        let mut arr = vec![
+            Object::Real(self.horizontal_radius as f64),
+            Object::Real(self.vertical_radius as f64),
+            Object::Real(self.width as f64),
+        ];
+
+        if let Some((dash, gap)) = self.dash {
+            arr.push(Object::Array(vec![Object::Real(dash as f64), Object::Real(gap as f64)]));
+        }
+
+        Object::Array(arr)
+    }
+}
+
+/// Highlight mode for link annotations.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum HighlightMode {
+    /// No highlighting (N)
+    None,
+    /// Invert the contents of the annotation rectangle (I)
+    #[default]
+    Invert,
+    /// Invert the annotation's border (O)
+    Outline,
+    /// Display the annotation as if it were being pushed (P)
+    Push,
+}
+
+impl HighlightMode {
+    /// Get the PDF name for this highlight mode.
+    pub fn pdf_name(&self) -> &'static str {
+        match self {
+            HighlightMode::None => "N",
+            HighlightMode::Invert => "I",
+            HighlightMode::Outline => "O",
+            HighlightMode::Push => "P",
+        }
+    }
+}
+
+/// Action for link annotations.
+#[derive(Debug, Clone)]
+pub enum LinkAction {
+    /// Open a URI (external link)
+    Uri(String),
+    /// Go to a page destination
+    GoTo {
+        /// Page index (0-indexed)
+        page: usize,
+        /// Optional fit mode
+        fit: Option<super::outline_builder::FitMode>,
+    },
+    /// Go to a named destination
+    GoToNamed(String),
+    /// Go to a destination in another PDF file
+    GoToRemote {
+        /// File path
+        file: String,
+        /// Page index
+        page: usize,
+    },
+    /// Launch an application
+    Launch(String),
+    /// JavaScript action
+    JavaScript(String),
+}
+
+/// A link annotation for hyperlinks.
+#[derive(Debug, Clone)]
+pub struct LinkAnnotation {
+    /// Bounding rectangle (in page coordinates)
+    pub rect: Rect,
+    /// The action to perform when clicked
+    pub action: LinkAction,
+    /// Border style
+    pub border: BorderStyle,
+    /// Highlight mode
+    pub highlight: HighlightMode,
+    /// Optional color for the border/highlight
+    pub color: Option<(f32, f32, f32)>,
+    /// Optional quad points for precise link area
+    pub quad_points: Option<Vec<f32>>,
+}
+
+impl LinkAnnotation {
+    /// Create a new link annotation with a URI action.
+    pub fn uri(rect: Rect, uri: impl Into<String>) -> Self {
+        Self {
+            rect,
+            action: LinkAction::Uri(uri.into()),
+            border: BorderStyle::none(),
+            highlight: HighlightMode::default(),
+            color: None,
+            quad_points: None,
+        }
+    }
+
+    /// Create a new link annotation that goes to a page.
+    pub fn goto_page(rect: Rect, page: usize) -> Self {
+        Self {
+            rect,
+            action: LinkAction::GoTo { page, fit: None },
+            border: BorderStyle::none(),
+            highlight: HighlightMode::default(),
+            color: None,
+            quad_points: None,
+        }
+    }
+
+    /// Create a link to a named destination.
+    pub fn goto_named(rect: Rect, name: impl Into<String>) -> Self {
+        Self {
+            rect,
+            action: LinkAction::GoToNamed(name.into()),
+            border: BorderStyle::none(),
+            highlight: HighlightMode::default(),
+            color: None,
+            quad_points: None,
+        }
+    }
+
+    /// Set the border style.
+    pub fn with_border(mut self, border: BorderStyle) -> Self {
+        self.border = border;
+        self
+    }
+
+    /// Set the highlight mode.
+    pub fn with_highlight(mut self, highlight: HighlightMode) -> Self {
+        self.highlight = highlight;
+        self
+    }
+
+    /// Set the color.
+    pub fn with_color(mut self, r: f32, g: f32, b: f32) -> Self {
+        self.color = Some((r, g, b));
+        self
+    }
+
+    /// Set quad points for precise link area.
+    ///
+    /// Quad points define a quadrilateral that more precisely
+    /// describes the link area. Each quad is 8 numbers:
+    /// x1,y1 (bottom-left), x2,y2 (bottom-right),
+    /// x3,y3 (top-right), x4,y4 (top-left)
+    pub fn with_quad_points(mut self, points: Vec<f32>) -> Self {
+        self.quad_points = Some(points);
+        self
+    }
+
+    /// Build the annotation dictionary.
+    pub fn build(&self, page_refs: &[ObjectRef]) -> HashMap<String, Object> {
+        let mut dict = HashMap::new();
+
+        dict.insert("Type".to_string(), Object::Name("Annot".to_string()));
+        dict.insert("Subtype".to_string(), Object::Name("Link".to_string()));
+
+        // Rectangle
+        dict.insert(
+            "Rect".to_string(),
+            Object::Array(vec![
+                Object::Real(self.rect.x as f64),
+                Object::Real(self.rect.y as f64),
+                Object::Real((self.rect.x + self.rect.width) as f64),
+                Object::Real((self.rect.y + self.rect.height) as f64),
+            ]),
+        );
+
+        // Border
+        dict.insert("Border".to_string(), self.border.to_border_array());
+
+        // Highlight mode
+        dict.insert("H".to_string(), Object::Name(self.highlight.pdf_name().to_string()));
+
+        // Color
+        if let Some((r, g, b)) = self.color {
+            dict.insert(
+                "C".to_string(),
+                Object::Array(vec![
+                    Object::Real(r as f64),
+                    Object::Real(g as f64),
+                    Object::Real(b as f64),
+                ]),
+            );
+        }
+
+        // Quad points
+        if let Some(ref points) = self.quad_points {
+            dict.insert(
+                "QuadPoints".to_string(),
+                Object::Array(points.iter().map(|&p| Object::Real(p as f64)).collect()),
+            );
+        }
+
+        // Action or Destination
+        match &self.action {
+            LinkAction::Uri(uri) => {
+                let mut action = HashMap::new();
+                action.insert("S".to_string(), Object::Name("URI".to_string()));
+                action.insert("URI".to_string(), Object::String(uri.as_bytes().to_vec()));
+                dict.insert("A".to_string(), Object::Dictionary(action));
+            },
+            LinkAction::GoTo { page, fit } => {
+                if let Some(page_ref) = page_refs.get(*page) {
+                    let dest = if let Some(fit_mode) = fit {
+                        self.build_destination(*page_ref, fit_mode)
+                    } else {
+                        Object::Array(vec![
+                            Object::Reference(*page_ref),
+                            Object::Name("Fit".to_string()),
+                        ])
+                    };
+                    dict.insert("Dest".to_string(), dest);
+                }
+            },
+            LinkAction::GoToNamed(name) => {
+                dict.insert("Dest".to_string(), Object::String(name.as_bytes().to_vec()));
+            },
+            LinkAction::GoToRemote { file, page } => {
+                let mut action = HashMap::new();
+                action.insert("S".to_string(), Object::Name("GoToR".to_string()));
+                action.insert("F".to_string(), Object::String(file.as_bytes().to_vec()));
+                action.insert(
+                    "D".to_string(),
+                    Object::Array(vec![
+                        Object::Integer(*page as i64),
+                        Object::Name("Fit".to_string()),
+                    ]),
+                );
+                dict.insert("A".to_string(), Object::Dictionary(action));
+            },
+            LinkAction::Launch(app) => {
+                let mut action = HashMap::new();
+                action.insert("S".to_string(), Object::Name("Launch".to_string()));
+                action.insert("F".to_string(), Object::String(app.as_bytes().to_vec()));
+                dict.insert("A".to_string(), Object::Dictionary(action));
+            },
+            LinkAction::JavaScript(script) => {
+                let mut action = HashMap::new();
+                action.insert("S".to_string(), Object::Name("JavaScript".to_string()));
+                action.insert("JS".to_string(), Object::String(script.as_bytes().to_vec()));
+                dict.insert("A".to_string(), Object::Dictionary(action));
+            },
+        }
+
+        dict
+    }
+
+    /// Build a destination array.
+    fn build_destination(
+        &self,
+        page_ref: ObjectRef,
+        fit: &super::outline_builder::FitMode,
+    ) -> Object {
+        use super::outline_builder::FitMode;
+
+        let mut arr = vec![Object::Reference(page_ref)];
+
+        match fit {
+            FitMode::Fit => {
+                arr.push(Object::Name("Fit".to_string()));
+            },
+            FitMode::FitH(top) => {
+                arr.push(Object::Name("FitH".to_string()));
+                arr.push(top.map(|t| Object::Real(t as f64)).unwrap_or(Object::Null));
+            },
+            FitMode::FitV(left) => {
+                arr.push(Object::Name("FitV".to_string()));
+                arr.push(left.map(|l| Object::Real(l as f64)).unwrap_or(Object::Null));
+            },
+            FitMode::FitR {
+                left,
+                bottom,
+                right,
+                top,
+            } => {
+                arr.push(Object::Name("FitR".to_string()));
+                arr.push(Object::Real(*left as f64));
+                arr.push(Object::Real(*bottom as f64));
+                arr.push(Object::Real(*right as f64));
+                arr.push(Object::Real(*top as f64));
+            },
+            FitMode::FitB => {
+                arr.push(Object::Name("FitB".to_string()));
+            },
+            FitMode::FitBH(top) => {
+                arr.push(Object::Name("FitBH".to_string()));
+                arr.push(top.map(|t| Object::Real(t as f64)).unwrap_or(Object::Null));
+            },
+            FitMode::FitBV(left) => {
+                arr.push(Object::Name("FitBV".to_string()));
+                arr.push(left.map(|l| Object::Real(l as f64)).unwrap_or(Object::Null));
+            },
+            FitMode::XYZ { left, top, zoom } => {
+                arr.push(Object::Name("XYZ".to_string()));
+                arr.push(left.map(|l| Object::Real(l as f64)).unwrap_or(Object::Null));
+                arr.push(top.map(|t| Object::Real(t as f64)).unwrap_or(Object::Null));
+                arr.push(zoom.map(|z| Object::Real(z as f64)).unwrap_or(Object::Null));
+            },
+        }
+
+        Object::Array(arr)
+    }
+}
+
+/// Builder for page annotations.
+#[derive(Debug, Default)]
+pub struct AnnotationBuilder {
+    /// Link annotations
+    links: Vec<LinkAnnotation>,
+}
+
+impl AnnotationBuilder {
+    /// Create a new annotation builder.
+    pub fn new() -> Self {
+        Self { links: Vec::new() }
+    }
+
+    /// Add a link annotation.
+    pub fn add_link(&mut self, link: LinkAnnotation) -> &mut Self {
+        self.links.push(link);
+        self
+    }
+
+    /// Add a URI link.
+    pub fn uri(&mut self, rect: Rect, uri: impl Into<String>) -> &mut Self {
+        self.add_link(LinkAnnotation::uri(rect, uri))
+    }
+
+    /// Add an internal page link.
+    pub fn goto(&mut self, rect: Rect, page: usize) -> &mut Self {
+        self.add_link(LinkAnnotation::goto_page(rect, page))
+    }
+
+    /// Get all link annotations.
+    pub fn links(&self) -> &[LinkAnnotation] {
+        &self.links
+    }
+
+    /// Check if there are any annotations.
+    pub fn is_empty(&self) -> bool {
+        self.links.is_empty()
+    }
+
+    /// Get the number of annotations.
+    pub fn len(&self) -> usize {
+        self.links.len()
+    }
+
+    /// Build annotation objects for a page.
+    ///
+    /// Returns a vector of annotation dictionaries.
+    pub fn build(&self, page_refs: &[ObjectRef]) -> Vec<HashMap<String, Object>> {
+        self.links
+            .iter()
+            .map(|link| link.build(page_refs))
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_border_style_none() {
+        let border = BorderStyle::none();
+        assert_eq!(border.width, 0.0);
+    }
+
+    #[test]
+    fn test_border_style_solid() {
+        let border = BorderStyle::solid(1.0);
+        assert_eq!(border.width, 1.0);
+        assert!(border.dash.is_none());
+    }
+
+    #[test]
+    fn test_border_style_dashed() {
+        let border = BorderStyle::dashed(2.0, 3.0, 1.0);
+        assert_eq!(border.width, 2.0);
+        assert_eq!(border.dash, Some((3.0, 1.0)));
+    }
+
+    #[test]
+    fn test_highlight_modes() {
+        assert_eq!(HighlightMode::None.pdf_name(), "N");
+        assert_eq!(HighlightMode::Invert.pdf_name(), "I");
+        assert_eq!(HighlightMode::Outline.pdf_name(), "O");
+        assert_eq!(HighlightMode::Push.pdf_name(), "P");
+    }
+
+    #[test]
+    fn test_link_annotation_uri() {
+        let link = LinkAnnotation::uri(Rect::new(72.0, 720.0, 100.0, 12.0), "https://example.com");
+
+        assert!(matches!(link.action, LinkAction::Uri(_)));
+        assert_eq!(link.rect.x, 72.0);
+    }
+
+    #[test]
+    fn test_link_annotation_goto() {
+        let link = LinkAnnotation::goto_page(Rect::new(72.0, 720.0, 50.0, 12.0), 5);
+
+        assert!(matches!(link.action, LinkAction::GoTo { page: 5, .. }));
+    }
+
+    #[test]
+    fn test_link_annotation_build_uri() {
+        let link = LinkAnnotation::uri(Rect::new(0.0, 0.0, 100.0, 20.0), "https://rust-lang.org");
+
+        let page_refs = vec![ObjectRef::new(10, 0)];
+        let dict = link.build(&page_refs);
+
+        assert_eq!(dict.get("Type"), Some(&Object::Name("Annot".to_string())));
+        assert_eq!(dict.get("Subtype"), Some(&Object::Name("Link".to_string())));
+        assert!(dict.contains_key("A")); // Action
+    }
+
+    #[test]
+    fn test_link_annotation_build_goto() {
+        let link = LinkAnnotation::goto_page(Rect::new(0.0, 0.0, 100.0, 20.0), 0);
+
+        let page_refs = vec![ObjectRef::new(10, 0), ObjectRef::new(11, 0)];
+        let dict = link.build(&page_refs);
+
+        assert!(dict.contains_key("Dest")); // Destination
+    }
+
+    #[test]
+    fn test_annotation_builder() {
+        let mut builder = AnnotationBuilder::new();
+        assert!(builder.is_empty());
+
+        builder.uri(Rect::new(0.0, 0.0, 50.0, 10.0), "https://example.com");
+        builder.goto(Rect::new(100.0, 0.0, 50.0, 10.0), 1);
+
+        assert_eq!(builder.len(), 2);
+        assert!(!builder.is_empty());
+    }
+
+    #[test]
+    fn test_link_with_styling() {
+        let link = LinkAnnotation::uri(Rect::new(0.0, 0.0, 100.0, 20.0), "https://example.com")
+            .with_border(BorderStyle::solid(1.0))
+            .with_color(0.0, 0.0, 1.0)
+            .with_highlight(HighlightMode::Push);
+
+        assert_eq!(link.border.width, 1.0);
+        assert_eq!(link.color, Some((0.0, 0.0, 1.0)));
+        assert!(matches!(link.highlight, HighlightMode::Push));
+    }
+}

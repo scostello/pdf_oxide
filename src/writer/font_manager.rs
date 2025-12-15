@@ -2,8 +2,18 @@
 //!
 //! This module provides font metrics and management for accurate
 //! text positioning in generated PDFs.
+//!
+//! # Embedded Fonts (v0.3.0)
+//!
+//! Supports embedding TrueType/OpenType fonts for full Unicode support.
+//! Per PDF spec Section 9.6-9.9, embedded fonts use:
+//! - CIDFont (Type 2) for TrueType fonts
+//! - Identity-H encoding for Unicode
+//! - ToUnicode CMap for text extraction
+//! - Font subsetting for reduced file size
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Font manager for PDF generation.
 ///
@@ -167,7 +177,7 @@ impl FontManager {
 
     /// Select the best matching font for the given criteria.
     pub fn select_font(&self, family: FontFamily, weight: FontWeight, italic: bool) -> &str {
-        let name = match (family, weight, italic) {
+        (match (family, weight, italic) {
             (FontFamily::Helvetica, FontWeight::Normal, false) => "Helvetica",
             (FontFamily::Helvetica, FontWeight::Bold, false) => "Helvetica-Bold",
             (FontFamily::Helvetica, FontWeight::Normal, true) => "Helvetica-Oblique",
@@ -182,8 +192,7 @@ impl FontManager {
             (FontFamily::Courier, FontWeight::Bold, true) => "Courier-BoldOblique",
             (FontFamily::Symbol, _, _) => "Symbol",
             (FontFamily::ZapfDingbats, _, _) => "ZapfDingbats",
-        };
-        name
+        }) as _
     }
 }
 
@@ -809,6 +818,362 @@ impl TextLayout {
 impl Default for TextLayout {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// =============================================================================
+// Embedded Font Support (v0.3.0)
+// =============================================================================
+
+use crate::fonts::{FontSubsetter, TrueTypeFont, UnicodeEncoder};
+
+/// Embedded TrueType font for PDF generation.
+///
+/// Contains parsed font data, subsetter, and encoder for generating
+/// CIDFont dictionaries and ToUnicode CMaps.
+#[derive(Debug)]
+pub struct EmbeddedFont {
+    /// Font name (PostScript name or user-provided)
+    pub name: String,
+    /// Subset name with tag (e.g., "ABCDEF+Arial")
+    subset_name: Option<String>,
+    /// Raw font data (for embedding)
+    font_data: Arc<Vec<u8>>,
+    /// Subsetter tracking used glyphs
+    subsetter: FontSubsetter,
+    /// Unicode encoder for text
+    #[allow(dead_code)]
+    encoder: UnicodeEncoder,
+    /// Cached glyph lookup (Unicode -> GID)
+    glyph_lookup: HashMap<u32, u16>,
+    /// Cached glyph widths (GID -> width in 1/1000 em)
+    glyph_widths: HashMap<u16, u16>,
+    /// Font ascender value
+    pub ascender: i32,
+    /// Font descender value
+    pub descender: i32,
+    /// Cap height (height of capital letters)
+    pub cap_height: i32,
+    /// x-height (height of lowercase x)
+    pub x_height: i32,
+    /// Font bounding box (llx, lly, urx, ury)
+    pub bbox: (i32, i32, i32, i32),
+    /// Font flags for PDF
+    pub flags: u32,
+    /// Stem vertical width
+    pub stem_v: i16,
+    /// Italic angle in degrees
+    pub italic_angle: f32,
+    /// Units per em
+    #[allow(dead_code)]
+    units_per_em: u16,
+}
+
+impl EmbeddedFont {
+    /// Create an embedded font from raw TTF/OTF data.
+    ///
+    /// # Arguments
+    /// * `name` - Font name to use (if None, uses PostScript name from font)
+    /// * `data` - Raw TTF/OTF file data
+    pub fn from_data(name: Option<String>, data: Vec<u8>) -> Result<Self, String> {
+        let font =
+            TrueTypeFont::parse(&data).map_err(|e| format!("Failed to parse font: {}", e))?;
+
+        let font_name = name.unwrap_or_else(|| {
+            font.postscript_name()
+                .unwrap_or_else(|| "Unknown".to_string())
+        });
+
+        // Extract metrics
+        let metrics = crate::fonts::FontMetrics::from_font(&font);
+
+        // Build glyph lookup
+        let mut glyph_lookup = HashMap::new();
+        let mut glyph_widths = HashMap::new();
+
+        for codepoint in font.supported_codepoints() {
+            if let Some(gid) = font.glyph_id(codepoint) {
+                glyph_lookup.insert(codepoint, gid);
+                glyph_widths.insert(gid, font.glyph_width(gid));
+            }
+        }
+
+        Ok(Self {
+            name: font_name,
+            subset_name: None,
+            font_data: Arc::new(data),
+            subsetter: FontSubsetter::new(),
+            encoder: UnicodeEncoder::new(),
+            glyph_lookup,
+            glyph_widths,
+            ascender: metrics.pdf_ascender(),
+            descender: metrics.pdf_descender(),
+            cap_height: metrics.pdf_cap_height(),
+            x_height: metrics.to_pdf_units(metrics.x_height),
+            bbox: metrics.pdf_bbox(),
+            flags: metrics.flags,
+            stem_v: metrics.stem_v,
+            italic_angle: metrics.italic_angle,
+            units_per_em: metrics.units_per_em,
+        })
+    }
+
+    /// Load an embedded font from a file.
+    pub fn from_file(path: impl AsRef<std::path::Path>) -> Result<Self, String> {
+        let data =
+            std::fs::read(path.as_ref()).map_err(|e| format!("Failed to read font file: {}", e))?;
+        Self::from_data(None, data)
+    }
+
+    /// Get the glyph ID for a Unicode codepoint.
+    pub fn glyph_id(&self, codepoint: u32) -> Option<u16> {
+        self.glyph_lookup.get(&codepoint).copied()
+    }
+
+    /// Get the width of a glyph in 1/1000 em units.
+    pub fn glyph_width(&self, gid: u16) -> u16 {
+        self.glyph_widths.get(&gid).copied().unwrap_or(500)
+    }
+
+    /// Get the width of a character in 1/1000 em units.
+    pub fn char_width(&self, codepoint: u32) -> u16 {
+        self.glyph_id(codepoint)
+            .map(|gid| self.glyph_width(gid))
+            .unwrap_or(500)
+    }
+
+    /// Calculate text width in points at the given font size.
+    pub fn text_width(&self, text: &str, font_size: f32) -> f32 {
+        let width_units: f32 = text.chars().map(|c| self.char_width(c as u32) as f32).sum();
+        width_units * font_size / 1000.0
+    }
+
+    /// Record that a string is being used (for subsetting).
+    pub fn use_string(&mut self, text: &str) {
+        for ch in text.chars() {
+            let codepoint = ch as u32;
+            if let Some(gid) = self.glyph_id(codepoint) {
+                self.subsetter.use_char(codepoint, gid);
+            }
+        }
+    }
+
+    /// Encode a string for use in PDF content stream (Identity-H encoding).
+    ///
+    /// Returns a hex string like "<00410042>" where each 4-digit hex is a glyph ID.
+    pub fn encode_string(&mut self, text: &str) -> String {
+        self.use_string(text);
+        // Build the hex string directly to avoid borrow issues
+        let mut hex = String::with_capacity(text.len() * 4 + 2);
+        hex.push('<');
+        for ch in text.chars() {
+            let glyph_id = self.glyph_id(ch as u32).unwrap_or(0);
+            hex.push_str(&format!("{:04X}", glyph_id));
+        }
+        hex.push('>');
+        hex
+    }
+
+    /// Get the subset font name (generates tag if needed).
+    pub fn subset_name(&mut self) -> &str {
+        if self.subset_name.is_none() {
+            self.subset_name = Some(self.subsetter.subset_font_name(&self.name));
+        }
+        self.subset_name.as_ref().unwrap()
+    }
+
+    /// Get the raw font data for embedding.
+    pub fn font_data(&self) -> &[u8] {
+        &self.font_data
+    }
+
+    /// Get subset statistics.
+    pub fn subset_stats(&self) -> (usize, usize) {
+        (self.subsetter.char_count(), self.subsetter.glyph_count())
+    }
+
+    /// Check if any text has been used with this font.
+    pub fn is_used(&self) -> bool {
+        !self.subsetter.is_empty()
+    }
+
+    /// Generate the CID widths array for the W entry.
+    pub fn generate_widths_array(&self) -> String {
+        let mut result = String::from("[");
+
+        // Get used glyphs sorted
+        let used_glyphs = self.subsetter.used_glyphs();
+        let glyphs: Vec<_> = used_glyphs.iter().copied().collect();
+
+        let mut i = 0;
+        while i < glyphs.len() {
+            let start = glyphs[i];
+            let mut widths = vec![self.glyph_width(start)];
+
+            // Find consecutive glyphs
+            while i + 1 < glyphs.len() && glyphs[i + 1] == glyphs[i] + 1 {
+                i += 1;
+                widths.push(self.glyph_width(glyphs[i]));
+            }
+
+            result.push_str(&format!("{} [", start));
+            for (j, w) in widths.iter().enumerate() {
+                if j > 0 {
+                    result.push(' ');
+                }
+                result.push_str(&w.to_string());
+            }
+            result.push(']');
+
+            i += 1;
+        }
+
+        result.push(']');
+        result
+    }
+
+    /// Generate the ToUnicode CMap for text extraction.
+    pub fn generate_tounicode_cmap(&self) -> String {
+        let used_chars = self.subsetter.used_chars();
+
+        let mut cmap = String::new();
+
+        // CMap header
+        cmap.push_str("/CIDInit /ProcSet findresource begin\n");
+        cmap.push_str("12 dict begin\n");
+        cmap.push_str("begincmap\n");
+        cmap.push_str("/CIDSystemInfo <<\n");
+        cmap.push_str("  /Registry (Adobe)\n");
+        cmap.push_str("  /Ordering (UCS)\n");
+        cmap.push_str("  /Supplement 0\n");
+        cmap.push_str(">> def\n");
+        cmap.push_str("/CMapName /Adobe-Identity-UCS def\n");
+        cmap.push_str("/CMapType 2 def\n");
+        cmap.push_str("1 begincodespacerange\n");
+        cmap.push_str("<0000> <FFFF>\n");
+        cmap.push_str("endcodespacerange\n");
+
+        // Build GID -> Unicode mappings
+        let mut mappings: Vec<(u16, u32)> = used_chars
+            .iter()
+            .map(|(&unicode, &gid)| (gid, unicode))
+            .collect();
+        mappings.sort_by_key(|&(gid, _)| gid);
+
+        // Write bfchar entries (max 100 per section per PDF spec)
+        let chunks: Vec<_> = mappings.chunks(100).collect();
+        for chunk in chunks {
+            cmap.push_str(&format!("{} beginbfchar\n", chunk.len()));
+            for &(gid, unicode) in chunk {
+                if unicode <= 0xFFFF {
+                    cmap.push_str(&format!("<{:04X}> <{:04X}>\n", gid, unicode));
+                } else {
+                    // Supplementary plane - encode as UTF-16 surrogate pair
+                    let high = ((unicode - 0x10000) >> 10) + 0xD800;
+                    let low = ((unicode - 0x10000) & 0x3FF) + 0xDC00;
+                    cmap.push_str(&format!("<{:04X}> <{:04X}{:04X}>\n", gid, high, low));
+                }
+            }
+            cmap.push_str("endbfchar\n");
+        }
+
+        // CMap footer
+        cmap.push_str("endcmap\n");
+        cmap.push_str("CMapName currentdict /CMap defineresource pop\n");
+        cmap.push_str("end\n");
+        cmap.push_str("end\n");
+
+        cmap
+    }
+}
+
+/// Extended font manager with embedded font support.
+#[derive(Debug, Default)]
+pub struct EmbeddedFontManager {
+    /// Embedded fonts by name
+    fonts: HashMap<String, EmbeddedFont>,
+    /// Font resource IDs (name -> resource ID like "F1")
+    resource_ids: HashMap<String, String>,
+    /// Next font resource ID number
+    next_id: u32,
+}
+
+impl EmbeddedFontManager {
+    /// Create a new embedded font manager.
+    pub fn new() -> Self {
+        Self {
+            fonts: HashMap::new(),
+            resource_ids: HashMap::new(),
+            next_id: 1,
+        }
+    }
+
+    /// Register an embedded font.
+    ///
+    /// # Arguments
+    /// * `name` - Name to register the font under
+    /// * `font` - The embedded font
+    ///
+    /// # Returns
+    /// The font resource ID (e.g., "F1")
+    pub fn register(&mut self, name: impl Into<String>, font: EmbeddedFont) -> String {
+        let name = name.into();
+        let resource_id = format!("F{}", self.next_id);
+        self.next_id += 1;
+
+        self.resource_ids.insert(name.clone(), resource_id.clone());
+        self.fonts.insert(name, font);
+
+        resource_id
+    }
+
+    /// Load and register a font from file.
+    pub fn register_from_file(
+        &mut self,
+        name: impl Into<String>,
+        path: impl AsRef<std::path::Path>,
+    ) -> Result<String, String> {
+        let font = EmbeddedFont::from_file(path)?;
+        Ok(self.register(name, font))
+    }
+
+    /// Get a font by name.
+    pub fn get(&self, name: &str) -> Option<&EmbeddedFont> {
+        self.fonts.get(name)
+    }
+
+    /// Get a mutable font by name.
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut EmbeddedFont> {
+        self.fonts.get_mut(name)
+    }
+
+    /// Get the resource ID for a font.
+    pub fn resource_id(&self, name: &str) -> Option<&str> {
+        self.resource_ids.get(name).map(|s| s.as_str())
+    }
+
+    /// Iterate over all registered fonts.
+    pub fn fonts(&self) -> impl Iterator<Item = (&str, &EmbeddedFont)> {
+        self.fonts.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
+    /// Iterate over all fonts with resource IDs.
+    pub fn fonts_with_ids(&self) -> impl Iterator<Item = (&str, &str, &EmbeddedFont)> {
+        self.fonts.iter().filter_map(|(name, font)| {
+            self.resource_ids
+                .get(name)
+                .map(|id| (name.as_str(), id.as_str(), font))
+        })
+    }
+
+    /// Get the number of registered fonts.
+    pub fn len(&self) -> usize {
+        self.fonts.len()
+    }
+
+    /// Check if any fonts are registered.
+    pub fn is_empty(&self) -> bool {
+        self.fonts.is_empty()
     }
 }
 

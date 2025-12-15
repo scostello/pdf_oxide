@@ -419,12 +419,858 @@ impl PyPdfDocument {
     }
 }
 
+// === PDF Creation API ===
+
+use crate::api::PdfBuilder as RustPdfBuilder;
+
+/// Python wrapper for PDF creation.
+///
+/// Provides simple PDF creation from Markdown, HTML, or plain text.
+///
+/// # Methods
+///
+/// - `from_markdown(content)`: Create PDF from Markdown
+/// - `from_html(content)`: Create PDF from HTML
+/// - `from_text(content)`: Create PDF from plain text
+/// - `save(path)`: Save PDF to file
+///
+/// Example:
+///     >>> pdf = Pdf.from_markdown("# Hello World")
+///     >>> pdf.save("output.pdf")
+#[pyclass(name = "Pdf")]
+pub struct PyPdf {
+    bytes: Vec<u8>,
+}
+
+#[pymethods]
+impl PyPdf {
+    /// Create a PDF from Markdown content.
+    ///
+    /// Args:
+    ///     content (str): Markdown content
+    ///     title (str, optional): Document title
+    ///     author (str, optional): Document author
+    ///
+    /// Returns:
+    ///     Pdf: Created PDF document
+    ///
+    /// Raises:
+    ///     RuntimeError: If PDF creation fails
+    ///
+    /// Example:
+    ///     >>> pdf = Pdf.from_markdown("# Hello\\n\\nWorld")
+    ///     >>> pdf.save("hello.pdf")
+    #[staticmethod]
+    #[pyo3(signature = (content, title=None, author=None))]
+    fn from_markdown(content: &str, title: Option<&str>, author: Option<&str>) -> PyResult<Self> {
+        let mut builder = RustPdfBuilder::new();
+        if let Some(t) = title {
+            builder = builder.title(t);
+        }
+        if let Some(a) = author {
+            builder = builder.author(a);
+        }
+
+        let pdf = builder
+            .from_markdown(content)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to create PDF: {}", e)))?;
+
+        Ok(PyPdf {
+            bytes: pdf.into_bytes(),
+        })
+    }
+
+    /// Create a PDF from HTML content.
+    ///
+    /// Args:
+    ///     content (str): HTML content
+    ///     title (str, optional): Document title
+    ///     author (str, optional): Document author
+    ///
+    /// Returns:
+    ///     Pdf: Created PDF document
+    ///
+    /// Example:
+    ///     >>> pdf = Pdf.from_html("<h1>Hello</h1><p>World</p>")
+    ///     >>> pdf.save("hello.pdf")
+    #[staticmethod]
+    #[pyo3(signature = (content, title=None, author=None))]
+    fn from_html(content: &str, title: Option<&str>, author: Option<&str>) -> PyResult<Self> {
+        let mut builder = RustPdfBuilder::new();
+        if let Some(t) = title {
+            builder = builder.title(t);
+        }
+        if let Some(a) = author {
+            builder = builder.author(a);
+        }
+
+        let pdf = builder
+            .from_html(content)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to create PDF: {}", e)))?;
+
+        Ok(PyPdf {
+            bytes: pdf.into_bytes(),
+        })
+    }
+
+    /// Create a PDF from plain text.
+    ///
+    /// Args:
+    ///     content (str): Plain text content
+    ///     title (str, optional): Document title
+    ///     author (str, optional): Document author
+    ///
+    /// Returns:
+    ///     Pdf: Created PDF document
+    ///
+    /// Example:
+    ///     >>> pdf = Pdf.from_text("Hello, World!")
+    ///     >>> pdf.save("hello.pdf")
+    #[staticmethod]
+    #[pyo3(signature = (content, title=None, author=None))]
+    fn from_text(content: &str, title: Option<&str>, author: Option<&str>) -> PyResult<Self> {
+        let mut builder = RustPdfBuilder::new();
+        if let Some(t) = title {
+            builder = builder.title(t);
+        }
+        if let Some(a) = author {
+            builder = builder.author(a);
+        }
+
+        let pdf = builder
+            .from_text(content)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to create PDF: {}", e)))?;
+
+        Ok(PyPdf {
+            bytes: pdf.into_bytes(),
+        })
+    }
+
+    /// Save the PDF to a file.
+    ///
+    /// Args:
+    ///     path (str): Output file path
+    ///
+    /// Raises:
+    ///     IOError: If the file cannot be written
+    ///
+    /// Example:
+    ///     >>> pdf = Pdf.from_markdown("# Hello")
+    ///     >>> pdf.save("output.pdf")
+    fn save(&self, path: &str) -> PyResult<()> {
+        std::fs::write(path, &self.bytes)
+            .map_err(|e| PyIOError::new_err(format!("Failed to save PDF: {}", e)))
+    }
+
+    /// Get the PDF as bytes.
+    ///
+    /// Returns:
+    ///     bytes: Raw PDF data
+    ///
+    /// Example:
+    ///     >>> pdf = Pdf.from_markdown("# Hello")
+    ///     >>> data = pdf.to_bytes()
+    ///     >>> len(data) > 0
+    ///     True
+    fn to_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Get the size of the PDF in bytes.
+    ///
+    /// Returns:
+    ///     int: Size in bytes
+    fn __len__(&self) -> usize {
+        self.bytes.len()
+    }
+
+    /// String representation.
+    fn __repr__(&self) -> String {
+        format!("Pdf({} bytes)", self.bytes.len())
+    }
+}
+
+// === Advanced Graphics Types ===
+
+use crate::layout::Color as RustColor;
+use crate::writer::{
+    BlendMode as RustBlendMode, LineCap as RustLineCap, LineJoin as RustLineJoin,
+    PatternPresets as RustPatternPresets,
+};
+
+/// RGB Color for PDF graphics.
+///
+/// Example:
+///     >>> color = Color(1.0, 0.0, 0.0)  # Red
+///     >>> color = Color.red()
+///     >>> color = Color.from_hex("#FF0000")
+#[pyclass(name = "Color")]
+#[derive(Clone)]
+pub struct PyColor {
+    inner: RustColor,
+}
+
+#[pymethods]
+impl PyColor {
+    /// Create a new RGB color.
+    ///
+    /// Args:
+    ///     r (float): Red component (0.0 to 1.0)
+    ///     g (float): Green component (0.0 to 1.0)
+    ///     b (float): Blue component (0.0 to 1.0)
+    #[new]
+    fn new(r: f32, g: f32, b: f32) -> Self {
+        PyColor {
+            inner: RustColor::new(r, g, b),
+        }
+    }
+
+    /// Create color from hex string.
+    ///
+    /// Args:
+    ///     hex_str (str): Hex color like "#FF0000" or "FF0000"
+    ///
+    /// Example:
+    ///     >>> red = Color.from_hex("#FF0000")
+    #[staticmethod]
+    fn from_hex(hex_str: &str) -> PyResult<Self> {
+        let hex = hex_str.trim_start_matches('#');
+        if hex.len() != 6 {
+            return Err(PyRuntimeError::new_err("Invalid hex color format"));
+        }
+        let r = u8::from_str_radix(&hex[0..2], 16)
+            .map_err(|_| PyRuntimeError::new_err("Invalid hex color"))?;
+        let g = u8::from_str_radix(&hex[2..4], 16)
+            .map_err(|_| PyRuntimeError::new_err("Invalid hex color"))?;
+        let b = u8::from_str_radix(&hex[4..6], 16)
+            .map_err(|_| PyRuntimeError::new_err("Invalid hex color"))?;
+        Ok(PyColor {
+            inner: RustColor::new(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0),
+        })
+    }
+
+    /// Black color.
+    #[staticmethod]
+    fn black() -> Self {
+        PyColor {
+            inner: RustColor::black(),
+        }
+    }
+
+    /// White color.
+    #[staticmethod]
+    fn white() -> Self {
+        PyColor {
+            inner: RustColor::white(),
+        }
+    }
+
+    /// Red color.
+    #[staticmethod]
+    fn red() -> Self {
+        PyColor {
+            inner: RustColor::new(1.0, 0.0, 0.0),
+        }
+    }
+
+    /// Green color.
+    #[staticmethod]
+    fn green() -> Self {
+        PyColor {
+            inner: RustColor::new(0.0, 1.0, 0.0),
+        }
+    }
+
+    /// Blue color.
+    #[staticmethod]
+    fn blue() -> Self {
+        PyColor {
+            inner: RustColor::new(0.0, 0.0, 1.0),
+        }
+    }
+
+    /// Get red component.
+    #[getter]
+    fn r(&self) -> f32 {
+        self.inner.r
+    }
+
+    /// Get green component.
+    #[getter]
+    fn g(&self) -> f32 {
+        self.inner.g
+    }
+
+    /// Get blue component.
+    #[getter]
+    fn b(&self) -> f32 {
+        self.inner.b
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Color({}, {}, {})", self.inner.r, self.inner.g, self.inner.b)
+    }
+}
+
+/// Blend modes for transparency effects.
+///
+/// Example:
+///     >>> gs = ExtGState().blend_mode(BlendMode.MULTIPLY)
+#[pyclass(name = "BlendMode")]
+#[derive(Clone)]
+pub struct PyBlendMode {
+    inner: RustBlendMode,
+}
+
+#[pymethods]
+impl PyBlendMode {
+    /// Normal blend mode (default).
+    #[staticmethod]
+    #[allow(non_snake_case)]
+    fn NORMAL() -> Self {
+        PyBlendMode {
+            inner: RustBlendMode::Normal,
+        }
+    }
+
+    /// Multiply blend mode.
+    #[staticmethod]
+    #[allow(non_snake_case)]
+    fn MULTIPLY() -> Self {
+        PyBlendMode {
+            inner: RustBlendMode::Multiply,
+        }
+    }
+
+    /// Screen blend mode.
+    #[staticmethod]
+    #[allow(non_snake_case)]
+    fn SCREEN() -> Self {
+        PyBlendMode {
+            inner: RustBlendMode::Screen,
+        }
+    }
+
+    /// Overlay blend mode.
+    #[staticmethod]
+    #[allow(non_snake_case)]
+    fn OVERLAY() -> Self {
+        PyBlendMode {
+            inner: RustBlendMode::Overlay,
+        }
+    }
+
+    /// Darken blend mode.
+    #[staticmethod]
+    #[allow(non_snake_case)]
+    fn DARKEN() -> Self {
+        PyBlendMode {
+            inner: RustBlendMode::Darken,
+        }
+    }
+
+    /// Lighten blend mode.
+    #[staticmethod]
+    #[allow(non_snake_case)]
+    fn LIGHTEN() -> Self {
+        PyBlendMode {
+            inner: RustBlendMode::Lighten,
+        }
+    }
+
+    /// Color dodge blend mode.
+    #[staticmethod]
+    #[allow(non_snake_case)]
+    fn COLOR_DODGE() -> Self {
+        PyBlendMode {
+            inner: RustBlendMode::ColorDodge,
+        }
+    }
+
+    /// Color burn blend mode.
+    #[staticmethod]
+    #[allow(non_snake_case)]
+    fn COLOR_BURN() -> Self {
+        PyBlendMode {
+            inner: RustBlendMode::ColorBurn,
+        }
+    }
+
+    /// Hard light blend mode.
+    #[staticmethod]
+    #[allow(non_snake_case)]
+    fn HARD_LIGHT() -> Self {
+        PyBlendMode {
+            inner: RustBlendMode::HardLight,
+        }
+    }
+
+    /// Soft light blend mode.
+    #[staticmethod]
+    #[allow(non_snake_case)]
+    fn SOFT_LIGHT() -> Self {
+        PyBlendMode {
+            inner: RustBlendMode::SoftLight,
+        }
+    }
+
+    /// Difference blend mode.
+    #[staticmethod]
+    #[allow(non_snake_case)]
+    fn DIFFERENCE() -> Self {
+        PyBlendMode {
+            inner: RustBlendMode::Difference,
+        }
+    }
+
+    /// Exclusion blend mode.
+    #[staticmethod]
+    #[allow(non_snake_case)]
+    fn EXCLUSION() -> Self {
+        PyBlendMode {
+            inner: RustBlendMode::Exclusion,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("BlendMode.{}", self.inner.as_pdf_name())
+    }
+}
+
+/// Extended Graphics State for transparency and blend effects.
+///
+/// Example:
+///     >>> gs = ExtGState().alpha(0.5).blend_mode(BlendMode.MULTIPLY)
+#[pyclass(name = "ExtGState")]
+#[derive(Clone)]
+pub struct PyExtGState {
+    fill_alpha: Option<f32>,
+    stroke_alpha: Option<f32>,
+    blend_mode: Option<RustBlendMode>,
+}
+
+#[pymethods]
+impl PyExtGState {
+    /// Create a new ExtGState builder.
+    #[new]
+    fn new() -> Self {
+        PyExtGState {
+            fill_alpha: None,
+            stroke_alpha: None,
+            blend_mode: None,
+        }
+    }
+
+    /// Set fill opacity (0.0 = transparent, 1.0 = opaque).
+    fn fill_alpha(&self, alpha: f32) -> Self {
+        PyExtGState {
+            fill_alpha: Some(alpha.clamp(0.0, 1.0)),
+            stroke_alpha: self.stroke_alpha,
+            blend_mode: self.blend_mode,
+        }
+    }
+
+    /// Set stroke opacity (0.0 = transparent, 1.0 = opaque).
+    fn stroke_alpha(&self, alpha: f32) -> Self {
+        PyExtGState {
+            fill_alpha: self.fill_alpha,
+            stroke_alpha: Some(alpha.clamp(0.0, 1.0)),
+            blend_mode: self.blend_mode,
+        }
+    }
+
+    /// Set both fill and stroke opacity.
+    fn alpha(&self, alpha: f32) -> Self {
+        let a = alpha.clamp(0.0, 1.0);
+        PyExtGState {
+            fill_alpha: Some(a),
+            stroke_alpha: Some(a),
+            blend_mode: self.blend_mode,
+        }
+    }
+
+    /// Set blend mode.
+    fn blend_mode(&self, mode: &PyBlendMode) -> Self {
+        PyExtGState {
+            fill_alpha: self.fill_alpha,
+            stroke_alpha: self.stroke_alpha,
+            blend_mode: Some(mode.inner),
+        }
+    }
+
+    /// Create semi-transparent state (50% opacity).
+    #[staticmethod]
+    fn semi_transparent() -> Self {
+        PyExtGState {
+            fill_alpha: Some(0.5),
+            stroke_alpha: Some(0.5),
+            blend_mode: None,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        let mut parts = Vec::new();
+        if let Some(a) = self.fill_alpha {
+            parts.push(format!("fill_alpha={}", a));
+        }
+        if let Some(a) = self.stroke_alpha {
+            parts.push(format!("stroke_alpha={}", a));
+        }
+        if let Some(ref m) = self.blend_mode {
+            parts.push(format!("blend_mode={}", m.as_pdf_name()));
+        }
+        format!("ExtGState({})", parts.join(", "))
+    }
+}
+
+/// Linear gradient builder.
+///
+/// Example:
+///     >>> gradient = LinearGradient() \
+///     ...     .start(0, 0).end(100, 100) \
+///     ...     .add_stop(0.0, Color.red()) \
+///     ...     .add_stop(1.0, Color.blue())
+#[pyclass(name = "LinearGradient")]
+#[derive(Clone)]
+pub struct PyLinearGradient {
+    start: (f32, f32),
+    end: (f32, f32),
+    stops: Vec<(f32, RustColor)>,
+    extend_start: bool,
+    extend_end: bool,
+}
+
+#[pymethods]
+impl PyLinearGradient {
+    /// Create a new linear gradient.
+    #[new]
+    fn new() -> Self {
+        PyLinearGradient {
+            start: (0.0, 0.0),
+            end: (100.0, 0.0),
+            stops: Vec::new(),
+            extend_start: true,
+            extend_end: true,
+        }
+    }
+
+    /// Set start point.
+    fn start(&self, x: f32, y: f32) -> Self {
+        PyLinearGradient {
+            start: (x, y),
+            end: self.end,
+            stops: self.stops.clone(),
+            extend_start: self.extend_start,
+            extend_end: self.extend_end,
+        }
+    }
+
+    /// Set end point.
+    fn end(&self, x: f32, y: f32) -> Self {
+        PyLinearGradient {
+            start: self.start,
+            end: (x, y),
+            stops: self.stops.clone(),
+            extend_start: self.extend_start,
+            extend_end: self.extend_end,
+        }
+    }
+
+    /// Add a color stop.
+    ///
+    /// Args:
+    ///     position (float): Position along gradient (0.0 to 1.0)
+    ///     color (Color): Color at this position
+    fn add_stop(&self, position: f32, color: &PyColor) -> Self {
+        let mut stops = self.stops.clone();
+        stops.push((position.clamp(0.0, 1.0), color.inner));
+        PyLinearGradient {
+            start: self.start,
+            end: self.end,
+            stops,
+            extend_start: self.extend_start,
+            extend_end: self.extend_end,
+        }
+    }
+
+    /// Set whether to extend gradient beyond endpoints.
+    fn extend(&self, extend: bool) -> Self {
+        PyLinearGradient {
+            start: self.start,
+            end: self.end,
+            stops: self.stops.clone(),
+            extend_start: extend,
+            extend_end: extend,
+        }
+    }
+
+    /// Create a horizontal gradient.
+    #[staticmethod]
+    fn horizontal(width: f32, start_color: &PyColor, end_color: &PyColor) -> Self {
+        PyLinearGradient {
+            start: (0.0, 0.0),
+            end: (width, 0.0),
+            stops: vec![(0.0, start_color.inner), (1.0, end_color.inner)],
+            extend_start: true,
+            extend_end: true,
+        }
+    }
+
+    /// Create a vertical gradient.
+    #[staticmethod]
+    fn vertical(height: f32, start_color: &PyColor, end_color: &PyColor) -> Self {
+        PyLinearGradient {
+            start: (0.0, 0.0),
+            end: (0.0, height),
+            stops: vec![(0.0, start_color.inner), (1.0, end_color.inner)],
+            extend_start: true,
+            extend_end: true,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "LinearGradient(({}, {}) -> ({}, {}), {} stops)",
+            self.start.0,
+            self.start.1,
+            self.end.0,
+            self.end.1,
+            self.stops.len()
+        )
+    }
+}
+
+/// Radial gradient builder.
+///
+/// Example:
+///     >>> gradient = RadialGradient.centered(50, 50, 50) \
+///     ...     .add_stop(0.0, Color.white()) \
+///     ...     .add_stop(1.0, Color.black())
+#[pyclass(name = "RadialGradient")]
+#[derive(Clone)]
+pub struct PyRadialGradient {
+    inner_center: (f32, f32),
+    inner_radius: f32,
+    outer_center: (f32, f32),
+    outer_radius: f32,
+    stops: Vec<(f32, RustColor)>,
+}
+
+#[pymethods]
+impl PyRadialGradient {
+    /// Create a new radial gradient.
+    #[new]
+    fn new() -> Self {
+        PyRadialGradient {
+            inner_center: (50.0, 50.0),
+            inner_radius: 0.0,
+            outer_center: (50.0, 50.0),
+            outer_radius: 50.0,
+            stops: Vec::new(),
+        }
+    }
+
+    /// Create a centered radial gradient.
+    #[staticmethod]
+    fn centered(cx: f32, cy: f32, radius: f32) -> Self {
+        PyRadialGradient {
+            inner_center: (cx, cy),
+            inner_radius: 0.0,
+            outer_center: (cx, cy),
+            outer_radius: radius,
+            stops: Vec::new(),
+        }
+    }
+
+    /// Set inner circle.
+    fn inner_circle(&self, cx: f32, cy: f32, radius: f32) -> Self {
+        PyRadialGradient {
+            inner_center: (cx, cy),
+            inner_radius: radius,
+            outer_center: self.outer_center,
+            outer_radius: self.outer_radius,
+            stops: self.stops.clone(),
+        }
+    }
+
+    /// Set outer circle.
+    fn outer_circle(&self, cx: f32, cy: f32, radius: f32) -> Self {
+        PyRadialGradient {
+            inner_center: self.inner_center,
+            inner_radius: self.inner_radius,
+            outer_center: (cx, cy),
+            outer_radius: radius,
+            stops: self.stops.clone(),
+        }
+    }
+
+    /// Add a color stop.
+    fn add_stop(&self, position: f32, color: &PyColor) -> Self {
+        let mut stops = self.stops.clone();
+        stops.push((position.clamp(0.0, 1.0), color.inner));
+        PyRadialGradient {
+            inner_center: self.inner_center,
+            inner_radius: self.inner_radius,
+            outer_center: self.outer_center,
+            outer_radius: self.outer_radius,
+            stops,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "RadialGradient(center=({}, {}), radius={}, {} stops)",
+            self.outer_center.0,
+            self.outer_center.1,
+            self.outer_radius,
+            self.stops.len()
+        )
+    }
+}
+
+/// Line cap styles.
+#[pyclass(name = "LineCap")]
+#[derive(Clone)]
+pub struct PyLineCap {
+    #[allow(dead_code)]
+    inner: RustLineCap,
+}
+
+#[pymethods]
+impl PyLineCap {
+    /// Butt cap (default).
+    #[staticmethod]
+    #[allow(non_snake_case)]
+    fn BUTT() -> Self {
+        PyLineCap {
+            inner: RustLineCap::Butt,
+        }
+    }
+
+    /// Round cap.
+    #[staticmethod]
+    #[allow(non_snake_case)]
+    fn ROUND() -> Self {
+        PyLineCap {
+            inner: RustLineCap::Round,
+        }
+    }
+
+    /// Square cap.
+    #[staticmethod]
+    #[allow(non_snake_case)]
+    fn SQUARE() -> Self {
+        PyLineCap {
+            inner: RustLineCap::Square,
+        }
+    }
+}
+
+/// Line join styles.
+#[pyclass(name = "LineJoin")]
+#[derive(Clone)]
+pub struct PyLineJoin {
+    #[allow(dead_code)]
+    inner: RustLineJoin,
+}
+
+#[pymethods]
+impl PyLineJoin {
+    /// Miter join (default).
+    #[staticmethod]
+    #[allow(non_snake_case)]
+    fn MITER() -> Self {
+        PyLineJoin {
+            inner: RustLineJoin::Miter,
+        }
+    }
+
+    /// Round join.
+    #[staticmethod]
+    #[allow(non_snake_case)]
+    fn ROUND() -> Self {
+        PyLineJoin {
+            inner: RustLineJoin::Round,
+        }
+    }
+
+    /// Bevel join.
+    #[staticmethod]
+    #[allow(non_snake_case)]
+    fn BEVEL() -> Self {
+        PyLineJoin {
+            inner: RustLineJoin::Bevel,
+        }
+    }
+}
+
+/// Pattern presets for common fill patterns.
+///
+/// Example:
+///     >>> content = PatternPresets.checkerboard(10, Color.white(), Color.black())
+#[pyclass(name = "PatternPresets")]
+pub struct PyPatternPresets;
+
+#[pymethods]
+impl PyPatternPresets {
+    /// Create horizontal stripes pattern.
+    #[staticmethod]
+    fn horizontal_stripes(width: f32, height: f32, stripe_height: f32, color: &PyColor) -> Vec<u8> {
+        RustPatternPresets::horizontal_stripes(width, height, stripe_height, color.inner)
+    }
+
+    /// Create vertical stripes pattern.
+    #[staticmethod]
+    fn vertical_stripes(width: f32, height: f32, stripe_width: f32, color: &PyColor) -> Vec<u8> {
+        RustPatternPresets::vertical_stripes(width, height, stripe_width, color.inner)
+    }
+
+    /// Create checkerboard pattern.
+    #[staticmethod]
+    fn checkerboard(size: f32, color1: &PyColor, color2: &PyColor) -> Vec<u8> {
+        RustPatternPresets::checkerboard(size, color1.inner, color2.inner)
+    }
+
+    /// Create dot pattern.
+    #[staticmethod]
+    fn dots(spacing: f32, radius: f32, color: &PyColor) -> Vec<u8> {
+        RustPatternPresets::dots(spacing, radius, color.inner)
+    }
+
+    /// Create diagonal lines pattern.
+    #[staticmethod]
+    fn diagonal_lines(size: f32, line_width: f32, color: &PyColor) -> Vec<u8> {
+        RustPatternPresets::diagonal_lines(size, line_width, color.inner)
+    }
+
+    /// Create crosshatch pattern.
+    #[staticmethod]
+    fn crosshatch(size: f32, line_width: f32, color: &PyColor) -> Vec<u8> {
+        RustPatternPresets::crosshatch(size, line_width, color.inner)
+    }
+}
+
 /// Python module for PDF library.
 ///
 /// This is the internal module (pdf_oxide) that gets imported by the Python package.
 #[pymodule]
 fn pdf_oxide(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Document reading
     m.add_class::<PyPdfDocument>()?;
+
+    // PDF creation
+    m.add_class::<PyPdf>()?;
+
+    // Advanced graphics
+    m.add_class::<PyColor>()?;
+    m.add_class::<PyBlendMode>()?;
+    m.add_class::<PyExtGState>()?;
+    m.add_class::<PyLinearGradient>()?;
+    m.add_class::<PyRadialGradient>()?;
+    m.add_class::<PyLineCap>()?;
+    m.add_class::<PyLineJoin>()?;
+    m.add_class::<PyPatternPresets>()?;
+
     m.add("VERSION", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }

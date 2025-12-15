@@ -44,19 +44,55 @@
 //! let bytes = writer.finish()?;
 //! ```
 
+mod annotation_builder;
 mod content_stream;
 mod document_builder;
 mod font_manager;
+mod graphics_state;
+mod image_handler;
 mod object_serializer;
+mod outline_builder;
+mod page_template;
+mod pattern;
 mod pdf_writer;
+mod shading;
+mod table_renderer;
 
-pub use content_stream::{ContentStreamBuilder, ContentStreamOp};
+pub use annotation_builder::{
+    AnnotationBuilder, BorderStyle, HighlightMode, LinkAction, LinkAnnotation,
+};
+pub use content_stream::{
+    BlendMode, ContentStreamBuilder, ContentStreamOp, LineCap, LineJoin, TextArrayItem,
+};
 pub use document_builder::{
     DocumentBuilder, DocumentMetadata, FluentPageBuilder, PageSize, TextAlign, TextConfig,
 };
-pub use font_manager::{FontFamily, FontInfo, FontManager, FontWeight, TextLayout};
+pub use font_manager::{
+    EmbeddedFont, EmbeddedFontManager, FontFamily, FontInfo, FontManager, FontWeight, TextLayout,
+};
+pub use graphics_state::{ExtGStateBuilder, SoftMask, SoftMaskSubtype};
+pub use image_handler::{ColorSpace, ImageData, ImageFormat, ImageManager, ImagePlacement};
 pub use object_serializer::ObjectSerializer;
+pub use outline_builder::{
+    FitMode, OutlineBuildResult, OutlineBuilder, OutlineDestination, OutlineItem, OutlineStyle,
+};
+pub use page_template::{
+    HFAlignment, HFElement, HFStyle, HeaderFooter, PageNumberFormat, PageTemplate, Placeholder,
+    PlaceholderContext,
+};
+pub use pattern::{
+    PatternPaintType, PatternPresets, PatternTilingType, ShadingPatternBuilder,
+    TilingPatternBuilder,
+};
 pub use pdf_writer::{PageBuilder, PdfWriter, PdfWriterConfig};
+pub use shading::{
+    ColorSpace as ShadingColorSpace, GradientPresets, GradientStop, LinearGradientBuilder,
+    RadialGradientBuilder,
+};
+pub use table_renderer::{
+    Borders, CellAlign, CellPadding, CellPosition, CellVAlign, ColumnWidth, FontMetrics,
+    SimpleFontMetrics, Table, TableBorderStyle, TableCell, TableLayout, TableRow, TableStyle,
+};
 
 use crate::elements::ContentElement;
 use crate::error::Result;

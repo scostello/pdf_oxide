@@ -121,6 +121,8 @@ pub mod images;
 
 // Document structure
 pub mod annotations;
+/// Content elements for PDF generation
+pub mod elements;
 pub mod outline;
 /// PDF logical structure (Tagged PDFs)
 pub mod structure;
@@ -130,6 +132,15 @@ pub mod converters;
 
 // Pipeline architecture for text extraction
 pub mod pipeline;
+
+// PDF writing/creation (v0.3.0)
+pub mod writer;
+
+// PDF editing (v0.3.0)
+pub mod editor;
+
+// High-level API (v0.3.0)
+pub mod api;
 
 // Re-export specific types from pipeline for use by converters
 pub use pipeline::XYCutStrategy;

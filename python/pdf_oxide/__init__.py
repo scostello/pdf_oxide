@@ -56,7 +56,35 @@ markdown_all = doc.to_markdown_all(detect_headings=True)
 Dual-licensed under MIT OR Apache-2.0.
 """
 
-from .pdf_oxide import PdfDocument, VERSION
+from .pdf_oxide import (
+    PdfDocument,
+    VERSION,
+    # PDF Creation
+    Pdf,
+    # Advanced Graphics
+    Color,
+    BlendMode,
+    ExtGState,
+    LinearGradient,
+    RadialGradient,
+    LineCap,
+    LineJoin,
+    PatternPresets,
+)
 
-__all__ = ["PdfDocument", "VERSION"]
-__version__ = "0.2.6"
+__all__ = [
+    "PdfDocument",
+    "VERSION",
+    # PDF Creation
+    "Pdf",
+    # Advanced Graphics
+    "Color",
+    "BlendMode",
+    "ExtGState",
+    "LinearGradient",
+    "RadialGradient",
+    "LineCap",
+    "LineJoin",
+    "PatternPresets",
+]
+__version__ = "0.3.0"

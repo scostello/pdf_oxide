@@ -62,6 +62,27 @@ impl PdfWriterConfig {
         self.subject = Some(subject.into());
         self
     }
+
+    /// Enable or disable stream compression.
+    ///
+    /// When enabled, content streams and embedded data will be compressed
+    /// using FlateDecode (zlib/deflate) to reduce file size.
+    pub fn with_compress(mut self, compress: bool) -> Self {
+        self.compress = compress;
+        self
+    }
+}
+
+/// Compress data using Flate/Deflate compression.
+///
+/// Returns compressed bytes suitable for FlateDecode filter.
+fn compress_data(data: &[u8]) -> std::io::Result<Vec<u8>> {
+    use flate2::write::ZlibEncoder;
+    use flate2::Compression;
+
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(data)?;
+    encoder.finish()
 }
 
 /// A page being built.
@@ -164,7 +185,7 @@ impl PdfWriter {
     }
 
     /// Add a page with the given dimensions.
-    pub fn add_page(&mut self, width: f32, height: f32) -> PageBuilder {
+    pub fn add_page(&mut self, width: f32, height: f32) -> PageBuilder<'_> {
         let page_index = self.pages.len();
         self.pages.push(PageData {
             width,
@@ -178,12 +199,12 @@ impl PdfWriter {
     }
 
     /// Add a US Letter sized page (8.5" x 11").
-    pub fn add_letter_page(&mut self) -> PageBuilder {
+    pub fn add_letter_page(&mut self) -> PageBuilder<'_> {
         self.add_page(612.0, 792.0)
     }
 
     /// Add an A4 sized page (210mm x 297mm).
-    pub fn add_a4_page(&mut self) -> PageBuilder {
+    pub fn add_a4_page(&mut self) -> PageBuilder<'_> {
         self.add_page(595.0, 842.0)
     }
 
@@ -265,11 +286,24 @@ impl PdfWriter {
             let (page_id, content_id) = page_ids[i];
 
             // Build content stream
-            let content_bytes = page_data.content_builder.build()?;
+            let raw_content = page_data.content_builder.build()?;
+
+            // Optionally compress the content stream
+            let (content_bytes, is_compressed) = if self.config.compress {
+                match compress_data(&raw_content) {
+                    Ok(compressed) => (compressed, true),
+                    Err(_) => (raw_content, false), // Fall back to uncompressed on error
+                }
+            } else {
+                (raw_content, false)
+            };
 
             // Create content stream object
             let mut content_dict = HashMap::new();
             content_dict.insert("Length".to_string(), Object::Integer(content_bytes.len() as i64));
+            if is_compressed {
+                content_dict.insert("Filter".to_string(), Object::Name("FlateDecode".to_string()));
+            }
 
             // Page object
             let page_obj = ObjectSerializer::dict(vec![
@@ -346,7 +380,7 @@ impl PdfWriter {
         output.extend_from_slice(&serializer.serialize_indirect(pages_id, 0, &pages_obj));
 
         // Font objects
-        for (_font_name, font_ref) in &self.fonts {
+        for font_ref in self.fonts.values() {
             if let Some(font_obj) = self.objects.get(&font_ref.id) {
                 xref_offsets.push((font_ref.id, output.len()));
                 output.extend_from_slice(&serializer.serialize_indirect(font_ref.id, 0, font_obj));

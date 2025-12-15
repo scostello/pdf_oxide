@@ -27,8 +27,10 @@ pub enum ContentStreamOp {
     MoveText(f32, f32),
     /// Set text matrix (Tm)
     SetTextMatrix(f32, f32, f32, f32, f32, f32),
-    /// Show text (Tj)
+    /// Show text (Tj) - literal string
     ShowText(String),
+    /// Show hex-encoded text (Tj) - for CIDFonts/Unicode
+    ShowHexText(String),
     /// Show text with positioning (TJ)
     ShowTextArray(Vec<TextArrayItem>),
     /// Set character spacing (Tc)
@@ -69,15 +71,152 @@ pub enum ContentStreamOp {
     CloseStroke,
     /// End path without filling/stroking (n)
     EndPath,
+    /// Paint XObject (Do)
+    PaintXObject(String),
+
+    // === Clipping Operations ===
+    /// Clip using non-zero winding rule (W)
+    Clip,
+    /// Clip using even-odd rule (W*)
+    ClipEvenOdd,
+
+    // === Extended Graphics State ===
+    /// Set graphics state from ExtGState dictionary (gs)
+    SetExtGState(String),
+
+    // === Color Space Operations ===
+    /// Set fill color space (cs)
+    SetFillColorSpace(String),
+    /// Set stroke color space (CS)
+    SetStrokeColorSpace(String),
+    /// Set fill color in current color space (sc/scn)
+    SetFillColorN(Vec<f32>),
+    /// Set stroke color in current color space (SC/SCN)
+    SetStrokeColorN(Vec<f32>),
+    /// Set fill color with pattern (scn with pattern name)
+    SetFillPattern(String, Vec<f32>),
+    /// Set stroke color with pattern (SCN with pattern name)
+    SetStrokePattern(String, Vec<f32>),
+
+    // === Shading Operations ===
+    /// Paint shading (sh)
+    PaintShading(String),
+
+    // === Additional Path Operations ===
+    /// Curve with first control point on current point (v)
+    CurveToV(f32, f32, f32, f32),
+    /// Curve with second control point on end point (y)
+    CurveToY(f32, f32, f32, f32),
+    /// Fill using even-odd rule (f*)
+    FillEvenOdd,
+    /// Fill and stroke using even-odd rule (B*)
+    FillStrokeEvenOdd,
+    /// Close, fill and stroke (b)
+    CloseFillStroke,
+    /// Close, fill and stroke using even-odd rule (b*)
+    CloseFillStrokeEvenOdd,
+
+    // === Line Style Operations ===
+    /// Set line cap style (J)
+    SetLineCap(LineCap),
+    /// Set line join style (j)
+    SetLineJoin(LineJoin),
+    /// Set miter limit (M)
+    SetMiterLimit(f32),
+    /// Set dash pattern (d)
+    SetDashPattern(Vec<f32>, f32),
+
+    // === CMYK Color Operations ===
+    /// Set fill color CMYK (k)
+    SetFillColorCMYK(f32, f32, f32, f32),
+    /// Set stroke color CMYK (K)
+    SetStrokeColorCMYK(f32, f32, f32, f32),
+
     /// Raw operator (for extensibility)
     Raw(String),
+}
+
+/// Line cap styles for path stroking.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum LineCap {
+    /// Square butt cap (default)
+    #[default]
+    Butt = 0,
+    /// Round cap
+    Round = 1,
+    /// Projecting square cap
+    Square = 2,
+}
+
+/// Line join styles for path stroking.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum LineJoin {
+    /// Miter join (default)
+    #[default]
+    Miter = 0,
+    /// Round join
+    Round = 1,
+    /// Bevel join
+    Bevel = 2,
+}
+
+/// Blend modes for transparency.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum BlendMode {
+    /// Normal blend (default)
+    #[default]
+    Normal,
+    /// Multiply
+    Multiply,
+    /// Screen
+    Screen,
+    /// Overlay
+    Overlay,
+    /// Darken
+    Darken,
+    /// Lighten
+    Lighten,
+    /// Color dodge
+    ColorDodge,
+    /// Color burn
+    ColorBurn,
+    /// Hard light
+    HardLight,
+    /// Soft light
+    SoftLight,
+    /// Difference
+    Difference,
+    /// Exclusion
+    Exclusion,
+}
+
+impl BlendMode {
+    /// Get the PDF name for this blend mode.
+    pub fn as_pdf_name(&self) -> &'static str {
+        match self {
+            BlendMode::Normal => "Normal",
+            BlendMode::Multiply => "Multiply",
+            BlendMode::Screen => "Screen",
+            BlendMode::Overlay => "Overlay",
+            BlendMode::Darken => "Darken",
+            BlendMode::Lighten => "Lighten",
+            BlendMode::ColorDodge => "ColorDodge",
+            BlendMode::ColorBurn => "ColorBurn",
+            BlendMode::HardLight => "HardLight",
+            BlendMode::SoftLight => "SoftLight",
+            BlendMode::Difference => "Difference",
+            BlendMode::Exclusion => "Exclusion",
+        }
+    }
 }
 
 /// Item in a TJ array (text or positioning adjustment).
 #[derive(Debug, Clone)]
 pub enum TextArrayItem {
-    /// Text string
+    /// Text string (literal)
     Text(String),
+    /// Hex-encoded text string (for CIDFonts/Unicode)
+    HexText(String),
     /// Positioning adjustment (negative = move right, positive = move left)
     Adjustment(f32),
 }
@@ -144,7 +283,7 @@ impl ContentStreamBuilder {
         self
     }
 
-    /// Add text at a position.
+    /// Add text at a position (literal string for Base-14 fonts).
     pub fn text(&mut self, text: &str, x: f32, y: f32) -> &mut Self {
         self.begin_text();
         self.op(ContentStreamOp::SetTextMatrix(1.0, 0.0, 0.0, 1.0, x, y));
@@ -152,14 +291,101 @@ impl ContentStreamBuilder {
         self
     }
 
+    /// Add hex-encoded text at a position (for CIDFonts/Unicode).
+    ///
+    /// The hex_string should already be formatted as "<XXXX...>" where each
+    /// 4-digit hex value is a glyph ID.
+    pub fn hex_text(&mut self, hex_string: &str, x: f32, y: f32) -> &mut Self {
+        self.begin_text();
+        self.op(ContentStreamOp::SetTextMatrix(1.0, 0.0, 0.0, 1.0, x, y));
+        self.op(ContentStreamOp::ShowHexText(hex_string.to_string()));
+        self
+    }
+
+    /// Add text using an embedded font with Unicode support.
+    ///
+    /// This is a convenience method that encodes the text and shows it.
+    /// The font should be registered and set before calling this.
+    pub fn unicode_text(
+        &mut self,
+        font: &mut crate::writer::font_manager::EmbeddedFont,
+        text: &str,
+        x: f32,
+        y: f32,
+    ) -> &mut Self {
+        let encoded = font.encode_string(text);
+        self.hex_text(&encoded, x, y)
+    }
+
     /// Set fill color.
     pub fn fill_color(&mut self, color: Color) -> &mut Self {
         self.op(ContentStreamOp::SetFillColorRGB(color.r, color.g, color.b))
     }
 
+    /// Draw an image XObject at the specified position and size.
+    ///
+    /// # Arguments
+    /// * `resource_id` - The XObject resource ID (e.g., "Im1")
+    /// * `x` - X position (left edge)
+    /// * `y` - Y position (bottom edge)
+    /// * `width` - Display width
+    /// * `height` - Display height
+    pub fn draw_image(
+        &mut self,
+        resource_id: &str,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    ) -> &mut Self {
+        // End any open text object
+        self.end_text();
+
+        // Save graphics state, apply transform, draw image, restore state
+        self.op(ContentStreamOp::SaveState);
+        self.op(ContentStreamOp::Transform(width, 0.0, 0.0, height, x, y));
+        self.op(ContentStreamOp::PaintXObject(resource_id.to_string()));
+        self.op(ContentStreamOp::RestoreState);
+        self
+    }
+
+    /// Draw an image using an ImagePlacement specification.
+    pub fn draw_image_at(
+        &mut self,
+        resource_id: &str,
+        placement: &super::image_handler::ImagePlacement,
+    ) -> &mut Self {
+        self.draw_image(resource_id, placement.x, placement.y, placement.width, placement.height)
+    }
+
     /// Set stroke color.
     pub fn stroke_color(&mut self, color: Color) -> &mut Self {
         self.op(ContentStreamOp::SetStrokeColorRGB(color.r, color.g, color.b))
+    }
+
+    /// Set fill color with RGB values.
+    pub fn set_fill_color(&mut self, r: f32, g: f32, b: f32) -> &mut Self {
+        self.op(ContentStreamOp::SetFillColorRGB(r, g, b))
+    }
+
+    /// Set stroke color with RGB values.
+    pub fn set_stroke_color(&mut self, r: f32, g: f32, b: f32) -> &mut Self {
+        self.op(ContentStreamOp::SetStrokeColorRGB(r, g, b))
+    }
+
+    /// Set line width.
+    pub fn set_line_width(&mut self, width: f32) -> &mut Self {
+        self.op(ContentStreamOp::SetLineWidth(width))
+    }
+
+    /// Move to a point (start a new subpath).
+    pub fn move_to(&mut self, x: f32, y: f32) -> &mut Self {
+        self.op(ContentStreamOp::MoveTo(x, y))
+    }
+
+    /// Draw a line to a point.
+    pub fn line_to(&mut self, x: f32, y: f32) -> &mut Self {
+        self.op(ContentStreamOp::LineTo(x, y))
     }
 
     /// Draw a rectangle.
@@ -177,6 +403,306 @@ impl ContentStreamBuilder {
         self.op(ContentStreamOp::Fill)
     }
 
+    /// Fill using even-odd rule.
+    pub fn fill_even_odd(&mut self) -> &mut Self {
+        self.op(ContentStreamOp::FillEvenOdd)
+    }
+
+    /// Fill and stroke the current path.
+    pub fn fill_stroke(&mut self) -> &mut Self {
+        self.op(ContentStreamOp::FillStroke)
+    }
+
+    /// Fill and stroke using even-odd rule.
+    pub fn fill_stroke_even_odd(&mut self) -> &mut Self {
+        self.op(ContentStreamOp::FillStrokeEvenOdd)
+    }
+
+    /// Close, fill, and stroke the path.
+    pub fn close_fill_stroke(&mut self) -> &mut Self {
+        self.op(ContentStreamOp::CloseFillStroke)
+    }
+
+    /// Close path.
+    pub fn close_path(&mut self) -> &mut Self {
+        self.op(ContentStreamOp::ClosePath)
+    }
+
+    // === Clipping Path Methods ===
+
+    /// Clip to the current path using non-zero winding rule.
+    ///
+    /// After calling this, use `end_path()` to consume the path without painting,
+    /// or combine with stroke/fill operations.
+    pub fn clip(&mut self) -> &mut Self {
+        self.op(ContentStreamOp::Clip)
+    }
+
+    /// Clip to the current path using even-odd rule.
+    pub fn clip_even_odd(&mut self) -> &mut Self {
+        self.op(ContentStreamOp::ClipEvenOdd)
+    }
+
+    /// End path without painting (use after clip).
+    pub fn end_path(&mut self) -> &mut Self {
+        self.op(ContentStreamOp::EndPath)
+    }
+
+    /// Create a rectangular clipping region.
+    ///
+    /// This is a convenience method that creates a rectangle path and clips to it.
+    pub fn clip_rect(&mut self, x: f32, y: f32, width: f32, height: f32) -> &mut Self {
+        self.rect(x, y, width, height).clip().end_path()
+    }
+
+    // === Graphics State Methods ===
+
+    /// Save the current graphics state.
+    pub fn save_state(&mut self) -> &mut Self {
+        self.op(ContentStreamOp::SaveState)
+    }
+
+    /// Restore the previous graphics state.
+    pub fn restore_state(&mut self) -> &mut Self {
+        self.op(ContentStreamOp::RestoreState)
+    }
+
+    /// Set extended graphics state (for transparency, blend modes, etc.).
+    ///
+    /// The `gs_name` should reference an ExtGState resource defined in the page.
+    pub fn set_ext_gstate(&mut self, gs_name: &str) -> &mut Self {
+        self.op(ContentStreamOp::SetExtGState(gs_name.to_string()))
+    }
+
+    // === Transform Methods ===
+
+    /// Apply a transformation matrix.
+    ///
+    /// Matrix is specified as [a b c d e f] where:
+    /// - a, d: scaling
+    /// - b, c: rotation/skewing
+    /// - e, f: translation
+    pub fn transform(&mut self, a: f32, b: f32, c: f32, d: f32, e: f32, f: f32) -> &mut Self {
+        self.op(ContentStreamOp::Transform(a, b, c, d, e, f))
+    }
+
+    /// Translate (move) the coordinate system.
+    pub fn translate(&mut self, tx: f32, ty: f32) -> &mut Self {
+        self.transform(1.0, 0.0, 0.0, 1.0, tx, ty)
+    }
+
+    /// Scale the coordinate system.
+    pub fn scale(&mut self, sx: f32, sy: f32) -> &mut Self {
+        self.transform(sx, 0.0, 0.0, sy, 0.0, 0.0)
+    }
+
+    /// Rotate the coordinate system by angle in radians.
+    pub fn rotate(&mut self, angle: f32) -> &mut Self {
+        let cos = angle.cos();
+        let sin = angle.sin();
+        self.transform(cos, sin, -sin, cos, 0.0, 0.0)
+    }
+
+    /// Rotate the coordinate system by angle in degrees.
+    pub fn rotate_degrees(&mut self, degrees: f32) -> &mut Self {
+        self.rotate(degrees * std::f32::consts::PI / 180.0)
+    }
+
+    // === Line Style Methods ===
+
+    /// Set line cap style.
+    pub fn set_line_cap(&mut self, cap: LineCap) -> &mut Self {
+        self.op(ContentStreamOp::SetLineCap(cap))
+    }
+
+    /// Set line join style.
+    pub fn set_line_join(&mut self, join: LineJoin) -> &mut Self {
+        self.op(ContentStreamOp::SetLineJoin(join))
+    }
+
+    /// Set miter limit.
+    pub fn set_miter_limit(&mut self, limit: f32) -> &mut Self {
+        self.op(ContentStreamOp::SetMiterLimit(limit))
+    }
+
+    /// Set dash pattern.
+    ///
+    /// # Arguments
+    /// * `pattern` - Array of dash lengths (e.g., [3.0, 2.0] for 3pt dash, 2pt gap)
+    /// * `phase` - Starting offset into the pattern
+    pub fn set_dash_pattern(&mut self, pattern: Vec<f32>, phase: f32) -> &mut Self {
+        self.op(ContentStreamOp::SetDashPattern(pattern, phase))
+    }
+
+    /// Set solid line (no dashing).
+    pub fn set_solid_line(&mut self) -> &mut Self {
+        self.set_dash_pattern(vec![], 0.0)
+    }
+
+    // === Color Space Methods ===
+
+    /// Set fill color space.
+    pub fn set_fill_color_space(&mut self, name: &str) -> &mut Self {
+        self.op(ContentStreamOp::SetFillColorSpace(name.to_string()))
+    }
+
+    /// Set stroke color space.
+    pub fn set_stroke_color_space(&mut self, name: &str) -> &mut Self {
+        self.op(ContentStreamOp::SetStrokeColorSpace(name.to_string()))
+    }
+
+    /// Set fill color in current color space.
+    pub fn set_fill_color_n(&mut self, components: Vec<f32>) -> &mut Self {
+        self.op(ContentStreamOp::SetFillColorN(components))
+    }
+
+    /// Set stroke color in current color space.
+    pub fn set_stroke_color_n(&mut self, components: Vec<f32>) -> &mut Self {
+        self.op(ContentStreamOp::SetStrokeColorN(components))
+    }
+
+    /// Set fill color with CMYK values.
+    pub fn set_fill_color_cmyk(&mut self, c: f32, m: f32, y: f32, k: f32) -> &mut Self {
+        self.op(ContentStreamOp::SetFillColorCMYK(c, m, y, k))
+    }
+
+    /// Set stroke color with CMYK values.
+    pub fn set_stroke_color_cmyk(&mut self, c: f32, m: f32, y: f32, k: f32) -> &mut Self {
+        self.op(ContentStreamOp::SetStrokeColorCMYK(c, m, y, k))
+    }
+
+    // === Pattern Methods ===
+
+    /// Set fill pattern.
+    ///
+    /// # Arguments
+    /// * `pattern_name` - Name of the pattern resource
+    /// * `components` - Additional color components (empty for colored patterns)
+    pub fn set_fill_pattern(&mut self, pattern_name: &str, components: Vec<f32>) -> &mut Self {
+        self.op(ContentStreamOp::SetFillPattern(pattern_name.to_string(), components))
+    }
+
+    /// Set stroke pattern.
+    pub fn set_stroke_pattern(&mut self, pattern_name: &str, components: Vec<f32>) -> &mut Self {
+        self.op(ContentStreamOp::SetStrokePattern(pattern_name.to_string(), components))
+    }
+
+    // === Shading Methods ===
+
+    /// Paint a shading (gradient).
+    ///
+    /// The shading fills the current clipping path. Use with `save_state()`,
+    /// `clip_rect()`, and `restore_state()` to control the painted area.
+    pub fn paint_shading(&mut self, shading_name: &str) -> &mut Self {
+        self.op(ContentStreamOp::PaintShading(shading_name.to_string()))
+    }
+
+    /// Draw a linear gradient within a rectangle.
+    ///
+    /// This is a convenience method that clips to the rectangle and paints the shading.
+    /// The shading resource must be defined separately.
+    pub fn draw_gradient_rect(
+        &mut self,
+        shading_name: &str,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    ) -> &mut Self {
+        self.save_state()
+            .rect(x, y, width, height)
+            .clip()
+            .end_path()
+            .paint_shading(shading_name)
+            .restore_state()
+    }
+
+    // === Additional Path Methods ===
+
+    /// Draw a Bézier curve (full control).
+    pub fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) -> &mut Self {
+        self.op(ContentStreamOp::CurveTo(x1, y1, x2, y2, x3, y3))
+    }
+
+    /// Draw a Bézier curve with first control point at current position.
+    pub fn curve_to_v(&mut self, x2: f32, y2: f32, x3: f32, y3: f32) -> &mut Self {
+        self.op(ContentStreamOp::CurveToV(x2, y2, x3, y3))
+    }
+
+    /// Draw a Bézier curve with second control point at end point.
+    pub fn curve_to_y(&mut self, x1: f32, y1: f32, x3: f32, y3: f32) -> &mut Self {
+        self.op(ContentStreamOp::CurveToY(x1, y1, x3, y3))
+    }
+
+    /// Draw a circle.
+    ///
+    /// Uses Bézier curves to approximate a circle.
+    pub fn circle(&mut self, cx: f32, cy: f32, radius: f32) -> &mut Self {
+        // Bézier approximation constant for circles
+        let k = 0.552_284_8; // 4/3 * (sqrt(2) - 1)
+        let c = radius * k;
+
+        self.move_to(cx + radius, cy)
+            .curve_to(cx + radius, cy + c, cx + c, cy + radius, cx, cy + radius)
+            .curve_to(cx - c, cy + radius, cx - radius, cy + c, cx - radius, cy)
+            .curve_to(cx - radius, cy - c, cx - c, cy - radius, cx, cy - radius)
+            .curve_to(cx + c, cy - radius, cx + radius, cy - c, cx + radius, cy)
+            .close_path()
+    }
+
+    /// Draw an ellipse.
+    pub fn ellipse(&mut self, cx: f32, cy: f32, rx: f32, ry: f32) -> &mut Self {
+        let kx = rx * 0.552_284_8;
+        let ky = ry * 0.552_284_8;
+
+        self.move_to(cx + rx, cy)
+            .curve_to(cx + rx, cy + ky, cx + kx, cy + ry, cx, cy + ry)
+            .curve_to(cx - kx, cy + ry, cx - rx, cy + ky, cx - rx, cy)
+            .curve_to(cx - rx, cy - ky, cx - kx, cy - ry, cx, cy - ry)
+            .curve_to(cx + kx, cy - ry, cx + rx, cy - ky, cx + rx, cy)
+            .close_path()
+    }
+
+    /// Draw a rounded rectangle.
+    pub fn rounded_rect(
+        &mut self,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        radius: f32,
+    ) -> &mut Self {
+        let r = radius.min(width / 2.0).min(height / 2.0);
+        let k = r * 0.552_284_8;
+
+        // Start at top-left corner (after radius)
+        self.move_to(x + r, y)
+            // Top edge
+            .line_to(x + width - r, y)
+            // Top-right corner
+            .curve_to(x + width - r + k, y, x + width, y + k, x + width, y + r)
+            // Right edge
+            .line_to(x + width, y + height - r)
+            // Bottom-right corner
+            .curve_to(
+                x + width,
+                y + height - r + k,
+                x + width - k,
+                y + height,
+                x + width - r,
+                y + height,
+            )
+            // Bottom edge
+            .line_to(x + r, y + height)
+            // Bottom-left corner
+            .curve_to(x + r - k, y + height, x, y + height - k, x, y + height - r)
+            // Left edge
+            .line_to(x, y + r)
+            // Top-left corner
+            .curve_to(x, y + r - k, x + r - k, y, x + r, y)
+            .close_path()
+    }
+
     /// Add a ContentElement to the stream.
     pub fn add_element(&mut self, element: &ContentElement) -> &mut Self {
         match element {
@@ -184,6 +710,7 @@ impl ContentStreamBuilder {
             ContentElement::Path(path) => self.add_path_content(path),
             ContentElement::Image(_) => self, // Images require XObject - skip for now
             ContentElement::Structure(_) => self, // Structure doesn't generate content stream ops
+            ContentElement::Table(_) => self, // Tables use Table::render() separately
         }
     }
 
@@ -311,6 +838,10 @@ impl ContentStreamBuilder {
                 self.write_escaped_string(w, text)?;
                 write!(w, ") Tj")
             },
+            ContentStreamOp::ShowHexText(hex) => {
+                // Hex string already formatted as <XXXX...>
+                write!(w, "{} Tj", hex)
+            },
             ContentStreamOp::ShowTextArray(items) => {
                 write!(w, "[")?;
                 for item in items {
@@ -319,6 +850,10 @@ impl ContentStreamBuilder {
                             write!(w, "(")?;
                             self.write_escaped_string(w, t)?;
                             write!(w, ")")?;
+                        },
+                        TextArrayItem::HexText(hex) => {
+                            // Hex string already formatted as <XXXX...>
+                            write!(w, "{}", hex)?;
                         },
                         TextArrayItem::Adjustment(adj) => {
                             write!(w, "{}", adj)?;
@@ -351,6 +886,81 @@ impl ContentStreamBuilder {
             ContentStreamOp::FillStroke => write!(w, "B"),
             ContentStreamOp::CloseStroke => write!(w, "s"),
             ContentStreamOp::EndPath => write!(w, "n"),
+            ContentStreamOp::PaintXObject(name) => write!(w, "/{} Do", name),
+
+            // Clipping operations
+            ContentStreamOp::Clip => write!(w, "W"),
+            ContentStreamOp::ClipEvenOdd => write!(w, "W*"),
+
+            // Extended graphics state
+            ContentStreamOp::SetExtGState(name) => write!(w, "/{} gs", name),
+
+            // Color space operations
+            ContentStreamOp::SetFillColorSpace(name) => write!(w, "/{} cs", name),
+            ContentStreamOp::SetStrokeColorSpace(name) => write!(w, "/{} CS", name),
+            ContentStreamOp::SetFillColorN(components) => {
+                for c in components {
+                    write!(w, "{} ", c)?;
+                }
+                write!(w, "scn")
+            },
+            ContentStreamOp::SetStrokeColorN(components) => {
+                for c in components {
+                    write!(w, "{} ", c)?;
+                }
+                write!(w, "SCN")
+            },
+            ContentStreamOp::SetFillPattern(name, components) => {
+                for c in components {
+                    write!(w, "{} ", c)?;
+                }
+                write!(w, "/{} scn", name)
+            },
+            ContentStreamOp::SetStrokePattern(name, components) => {
+                for c in components {
+                    write!(w, "{} ", c)?;
+                }
+                write!(w, "/{} SCN", name)
+            },
+
+            // Shading
+            ContentStreamOp::PaintShading(name) => write!(w, "/{} sh", name),
+
+            // Additional path operations
+            ContentStreamOp::CurveToV(x2, y2, x3, y3) => {
+                write!(w, "{} {} {} {} v", x2, y2, x3, y3)
+            },
+            ContentStreamOp::CurveToY(x1, y1, x3, y3) => {
+                write!(w, "{} {} {} {} y", x1, y1, x3, y3)
+            },
+            ContentStreamOp::FillEvenOdd => write!(w, "f*"),
+            ContentStreamOp::FillStrokeEvenOdd => write!(w, "B*"),
+            ContentStreamOp::CloseFillStroke => write!(w, "b"),
+            ContentStreamOp::CloseFillStrokeEvenOdd => write!(w, "b*"),
+
+            // Line style operations
+            ContentStreamOp::SetLineCap(cap) => write!(w, "{} J", *cap as u8),
+            ContentStreamOp::SetLineJoin(join) => write!(w, "{} j", *join as u8),
+            ContentStreamOp::SetMiterLimit(limit) => write!(w, "{} M", limit),
+            ContentStreamOp::SetDashPattern(pattern, phase) => {
+                write!(w, "[")?;
+                for (i, p) in pattern.iter().enumerate() {
+                    if i > 0 {
+                        write!(w, " ")?;
+                    }
+                    write!(w, "{}", p)?;
+                }
+                write!(w, "] {} d", phase)
+            },
+
+            // CMYK colors
+            ContentStreamOp::SetFillColorCMYK(c, m, y, k) => {
+                write!(w, "{} {} {} {} k", c, m, y, k)
+            },
+            ContentStreamOp::SetStrokeColorCMYK(c, m, y, k) => {
+                write!(w, "{} {} {} {} K", c, m, y, k)
+            },
+
             ContentStreamOp::Raw(raw) => write!(w, "{}", raw),
         }
     }

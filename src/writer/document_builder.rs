@@ -328,7 +328,7 @@ impl DocumentBuilder {
     }
 
     /// Add a page with the specified size and return a page builder.
-    pub fn page(&mut self, size: PageSize) -> FluentPageBuilder {
+    pub fn page(&mut self, size: PageSize) -> FluentPageBuilder<'_> {
         let (width, height) = size.dimensions();
         let page_index = self.pages.len();
         self.pages.push(PageData {
@@ -347,12 +347,12 @@ impl DocumentBuilder {
     }
 
     /// Add a Letter-sized page.
-    pub fn letter_page(&mut self) -> FluentPageBuilder {
+    pub fn letter_page(&mut self) -> FluentPageBuilder<'_> {
         self.page(PageSize::Letter)
     }
 
     /// Add an A4-sized page.
-    pub fn a4_page(&mut self) -> FluentPageBuilder {
+    pub fn a4_page(&mut self) -> FluentPageBuilder<'_> {
         self.page(PageSize::A4)
     }
 
@@ -396,6 +396,7 @@ impl Default for DocumentBuilder {
 }
 
 /// Simple word wrapping utility.
+#[allow(dead_code)]
 fn wrap_text(text: &str, max_chars: usize) -> Vec<String> {
     let mut lines = Vec::new();
     let mut current_line = String::new();

@@ -364,6 +364,32 @@ impl PdfDocument {
         self.version
     }
 
+    /// Get a reference to the trailer dictionary.
+    ///
+    /// The trailer dictionary contains important document metadata including:
+    /// - /Root: Reference to the catalog dictionary
+    /// - /Info: Reference to the document info dictionary (optional)
+    /// - /Size: Number of entries in the cross-reference table
+    /// - /Encrypt: Encryption dictionary (if encrypted)
+    /// - /ID: File identifier array
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use pdf_oxide::document::PdfDocument;
+    /// # let mut doc = PdfDocument::open("sample.pdf")?;
+    /// let trailer = doc.trailer();
+    /// if let Some(dict) = trailer.as_dict() {
+    ///     if let Some(info_ref) = dict.get("Info") {
+    ///         println!("Document has an Info dictionary");
+    ///     }
+    /// }
+    /// # Ok::<(), pdf_oxide::error::Error>(())
+    /// ```
+    pub fn trailer(&self) -> &Object {
+        &self.trailer
+    }
+
     /// Scan the file to find an object by its header.
     ///
     /// This is a fallback method used when an object is not in the xref table

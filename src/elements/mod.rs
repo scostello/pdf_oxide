@@ -32,10 +32,15 @@
 
 mod image;
 mod path;
+mod table;
 mod text;
 
 pub use image::{ColorSpace, ImageContent, ImageFormat};
 pub use path::{LineCap, LineJoin, PathContent, PathOperation};
+pub use table::{
+    TableCellAlign, TableCellContent, TableCellVAlign, TableContent, TableContentStyle,
+    TableRowContent,
+};
 pub use text::{FontSpec, FontStyle, TextContent, TextStyle};
 
 use crate::geometry::Rect;
@@ -54,6 +59,8 @@ pub enum ContentElement {
     Path(PathContent),
     /// Structural element (for Tagged PDF support)
     Structure(StructureElement),
+    /// Table content with rows and cells
+    Table(TableContent),
 }
 
 impl ContentElement {
@@ -64,6 +71,7 @@ impl ContentElement {
             ContentElement::Image(i) => i.bbox,
             ContentElement::Path(p) => p.bbox,
             ContentElement::Structure(s) => s.bbox,
+            ContentElement::Table(t) => t.bbox,
         }
     }
 
@@ -74,6 +82,7 @@ impl ContentElement {
             ContentElement::Image(i) => i.reading_order,
             ContentElement::Path(p) => p.reading_order,
             ContentElement::Structure(s) => s.reading_order,
+            ContentElement::Table(t) => t.reading_order,
         }
     }
 
@@ -90,6 +99,11 @@ impl ContentElement {
     /// Check if this is a path element.
     pub fn is_path(&self) -> bool {
         matches!(self, ContentElement::Path(_))
+    }
+
+    /// Check if this is a table element.
+    pub fn is_table(&self) -> bool {
+        matches!(self, ContentElement::Table(_))
     }
 
     /// Get as text content if this is a text element.
@@ -112,6 +126,14 @@ impl ContentElement {
     pub fn as_path(&self) -> Option<&PathContent> {
         match self {
             ContentElement::Path(p) => Some(p),
+            _ => None,
+        }
+    }
+
+    /// Get as table content if this is a table element.
+    pub fn as_table(&self) -> Option<&TableContent> {
+        match self {
+            ContentElement::Table(t) => Some(t),
             _ => None,
         }
     }
