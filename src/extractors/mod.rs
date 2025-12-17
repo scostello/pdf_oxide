@@ -6,9 +6,11 @@ pub mod ccitt_bilevel;
 pub mod forms;
 pub mod gap_statistics;
 pub mod geometric_spacing;
+pub mod hierarchical;
 pub mod images;
 pub mod pattern_detector;
 pub mod structured;
+pub mod synthetic_structure;
 pub mod text;
 
 #[cfg(feature = "debug-span-merging")]
@@ -20,10 +22,12 @@ pub use gap_statistics::{
     AdaptiveThresholdConfig, AdaptiveThresholdResult, GapStatistics,
 };
 pub use geometric_spacing::{should_insert_space, SpaceInsertion, SpacingConfig};
+pub use hierarchical::HierarchicalExtractor;
 pub use images::{extract_image_from_xobject, ColorSpace, ImageData, PdfImage, PixelFormat};
 pub use pattern_detector::{PatternDetector, PatternPreservationConfig};
 pub use structured::{
     BoundingBox, DocumentElement, DocumentMetadata, ExtractorConfig, ListItem, StructuredDocument,
     StructuredExtractor, TextAlignment, TextStyle,
 };
+pub use synthetic_structure::{SyntheticStructureConfig, SyntheticStructureGenerator};
 pub use text::{SpanMergingConfig, TextExtractionConfig, TextExtractor};

@@ -3,7 +3,7 @@
 //! Builds PDF content streams containing graphics and text operators
 //! according to PDF specification ISO 32000-1:2008 Section 8-9.
 
-use crate::elements::{ContentElement, PathContent, PathOperation, TextContent};
+use crate::elements::{ContentElement, PathContent, PathOperation, StructureElement, TextContent};
 use crate::error::Result;
 use crate::layout::Color;
 use std::io::Write;
@@ -73,6 +73,17 @@ pub enum ContentStreamOp {
     EndPath,
     /// Paint XObject (Do)
     PaintXObject(String),
+
+    // === Marked Content Operations ===
+    /// Begin marked content with dictionary (BDC) - for tagged PDF structure
+    BeginMarkedContentDict {
+        /// The tag/structure type (e.g., "P" for paragraph, "H1" for heading)
+        tag: String,
+        /// Marked Content ID for linking to structure tree
+        mcid: u32,
+    },
+    /// End marked content (EMC)
+    EndMarkedContent,
 
     // === Clipping Operations ===
     /// Clip using non-zero winding rule (W)
@@ -235,6 +246,8 @@ pub struct ContentStreamBuilder {
     current_font_size: f32,
     /// Whether we're in a text object
     in_text_object: bool,
+    /// MCID (Marked Content ID) counter for tagged PDF structure
+    mcid_counter: u32,
 }
 
 impl ContentStreamBuilder {
@@ -806,6 +819,62 @@ impl ContentStreamBuilder {
         self
     }
 
+    /// Get the next MCID value and increment the counter.
+    pub fn next_mcid(&mut self) -> u32 {
+        let mcid = self.mcid_counter;
+        self.mcid_counter += 1;
+        mcid
+    }
+
+    /// Add a StructureElement with marked content wrapping.
+    ///
+    /// This wraps the structure element's children in BDC/EMC (Begin/End Marked Content)
+    /// operators to enable tagged PDF support. Each content element gets a unique MCID.
+    ///
+    /// # Arguments
+    ///
+    /// * `elem` - The structure element to add, containing the hierarchy and content
+    ///
+    /// # PDF Spec Compliance
+    ///
+    /// - ISO 32000-1:2008, Section 14.7.4 - Marked Content Sequences
+    /// - BDC operator with tag and MCID property dictionary
+    /// - EMC operator for proper nesting
+    pub fn add_structure_element(&mut self, elem: &StructureElement) -> &mut Self {
+        self.add_structure_element_impl(elem)
+    }
+
+    /// Internal recursive implementation for adding structure elements.
+    fn add_structure_element_impl(&mut self, elem: &StructureElement) -> &mut Self {
+        // Allocate MCID for this structure element
+        let mcid = self.next_mcid();
+
+        // Begin marked content with structure type as tag and MCID property
+        self.op(ContentStreamOp::BeginMarkedContentDict {
+            tag: elem.structure_type.clone(),
+            mcid,
+        });
+
+        // Add children (recursively for nested structures)
+        for child in &elem.children {
+            match child {
+                ContentElement::Structure(nested_elem) => {
+                    // Recursively add nested structure element
+                    self.add_structure_element_impl(nested_elem);
+                },
+                _ => {
+                    // Add regular content element
+                    self.add_element(child);
+                },
+            }
+        }
+
+        // End marked content
+        self.op(ContentStreamOp::EndMarkedContent);
+
+        self
+    }
+
     /// Build the content stream to bytes.
     pub fn build(&self) -> Result<Vec<u8>> {
         let mut buf = Vec::new();
@@ -887,6 +956,12 @@ impl ContentStreamBuilder {
             ContentStreamOp::CloseStroke => write!(w, "s"),
             ContentStreamOp::EndPath => write!(w, "n"),
             ContentStreamOp::PaintXObject(name) => write!(w, "/{} Do", name),
+
+            // Marked content operations
+            ContentStreamOp::BeginMarkedContentDict { tag, mcid } => {
+                write!(w, "/{} <</MCID {}>> BDC", tag, mcid)
+            },
+            ContentStreamOp::EndMarkedContent => write!(w, "EMC"),
 
             // Clipping operations
             ContentStreamOp::Clip => write!(w, "W"),
@@ -1047,6 +1122,103 @@ mod tests {
         assert!(content.contains("0 0 m"));
         assert!(content.contains("100 100 l"));
         assert!(content.contains("S"));
+    }
+
+    #[test]
+    fn test_marked_content_operators() {
+        let mut builder = ContentStreamBuilder::new();
+
+        builder
+            .op(ContentStreamOp::BeginMarkedContentDict {
+                tag: "P".to_string(),
+                mcid: 0,
+            })
+            .op(ContentStreamOp::EndMarkedContent);
+
+        let bytes = builder.build().unwrap();
+        let content = String::from_utf8_lossy(&bytes);
+
+        assert!(content.contains("/P <</MCID 0>> BDC"));
+        assert!(content.contains("EMC"));
+    }
+
+    #[test]
+    fn test_mcid_allocation() {
+        let mut builder = ContentStreamBuilder::new();
+        assert_eq!(builder.next_mcid(), 0);
+        assert_eq!(builder.next_mcid(), 1);
+        assert_eq!(builder.next_mcid(), 2);
+    }
+
+    #[test]
+    fn test_structure_element_with_text() {
+        use crate::elements::FontSpec;
+        use crate::geometry::Rect;
+
+        let text_content = TextContent {
+            text: "Hello".to_string(),
+            bbox: Rect::new(100.0, 700.0, 50.0, 12.0),
+            font: FontSpec::new("Helvetica", 12.0),
+            style: TextStyle::default(),
+            reading_order: Some(0),
+        };
+
+        let structure = StructureElement {
+            structure_type: "P".to_string(),
+            bbox: Rect::new(100.0, 700.0, 200.0, 50.0),
+            children: vec![ContentElement::Text(text_content)],
+            reading_order: Some(0),
+            alt_text: None,
+            language: None,
+        };
+
+        let mut builder = ContentStreamBuilder::new();
+        builder.add_structure_element(&structure);
+        builder.end_text();
+
+        let bytes = builder.build().unwrap();
+        let content = String::from_utf8_lossy(&bytes);
+
+        assert!(content.contains("/P <</MCID 0>> BDC"));
+        assert!(content.contains("EMC"));
+        assert!(content.contains("(Hello) Tj"));
+    }
+
+    #[test]
+    fn test_nested_structure_elements() {
+        use crate::geometry::Rect;
+
+        let inner_structure = StructureElement {
+            structure_type: "Span".to_string(),
+            bbox: Rect::new(100.0, 700.0, 50.0, 12.0),
+            children: vec![],
+            reading_order: None,
+            alt_text: None,
+            language: None,
+        };
+
+        let outer_structure = StructureElement {
+            structure_type: "P".to_string(),
+            bbox: Rect::new(100.0, 700.0, 200.0, 50.0),
+            children: vec![ContentElement::Structure(inner_structure)],
+            reading_order: Some(0),
+            alt_text: None,
+            language: None,
+        };
+
+        let mut builder = ContentStreamBuilder::new();
+        builder.add_structure_element(&outer_structure);
+
+        let bytes = builder.build().unwrap();
+        let content = String::from_utf8_lossy(&bytes);
+
+        // Should have BDC/EMC pairs for both outer and inner structures
+        assert!(content.contains("/P <</MCID 0>> BDC"));
+        assert!(content.contains("/Span <</MCID 1>> BDC"));
+
+        // Count EMC to ensure proper nesting
+        let emc_count = content.matches("EMC").count();
+        assert_eq!(emc_count, 2);
     }
 
     #[test]

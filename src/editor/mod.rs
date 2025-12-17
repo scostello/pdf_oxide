@@ -42,5 +42,12 @@
 //! ```
 
 mod document_editor;
+pub mod dom;
+pub mod resource_manager;
 
 pub use document_editor::{DocumentEditor, DocumentInfo, EditableDocument, PageInfo, SaveOptions};
+pub use dom::{
+    ElementId, ImageElementCollectionEditor, PageEditor, PdfElement, PdfImage, PdfPage, PdfPath,
+    PdfStructure, PdfTable, PdfText, TextElementCollectionEditor,
+};
+pub use resource_manager::ResourceManager;

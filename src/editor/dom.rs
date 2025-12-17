@@ -1,0 +1,908 @@
+//! DOM-like API for PDF editing with strongly-typed elements.
+//!
+//! This module provides a hierarchical, DOM-like interface for editing PDF content.
+//! Instead of working with generic content types, this API returns strongly-typed
+//! wrappers (PdfText, PdfImage, etc.) that provide domain-specific methods.
+
+use crate::elements::{
+    ContentElement, ImageContent, PathContent, StructureElement, TableContent, TextContent,
+};
+use crate::geometry::Rect;
+use crate::layout::Color;
+use std::collections::{HashMap, HashSet};
+use uuid::Uuid;
+
+/// Unique element identifier (UUID-based).
+///
+/// This ID is used to reference elements for modification and navigation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ElementId(Uuid);
+
+impl ElementId {
+    /// Generate a new unique element ID.
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl Default for ElementId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Path to an element in the content tree.
+///
+/// Represented as a sequence of child indices: [idx0, idx1, idx2, ...]
+#[derive(Debug, Clone)]
+pub struct ElementPath {
+    /// Sequence of child indices traversing from root to element.
+    pub path: Vec<usize>,
+}
+
+impl ElementPath {
+    fn new() -> Self {
+        Self { path: Vec::new() }
+    }
+
+    fn with_child(&self, idx: usize) -> Self {
+        let mut path = self.path.clone();
+        path.push(idx);
+        Self { path }
+    }
+}
+
+/// Strongly-typed text element with DOM capabilities.
+#[derive(Debug, Clone)]
+pub struct PdfText {
+    pub id: ElementId,
+    pub content: TextContent,
+    pub path: ElementPath,
+}
+
+impl PdfText {
+    pub fn id(&self) -> ElementId {
+        self.id
+    }
+
+    pub fn text(&self) -> &str {
+        &self.content.text
+    }
+
+    pub fn bbox(&self) -> Rect {
+        self.content.bbox
+    }
+
+    pub fn font_name(&self) -> &str {
+        &self.content.font.name
+    }
+
+    pub fn font_size(&self) -> f32 {
+        self.content.font.size
+    }
+
+    pub fn is_bold(&self) -> bool {
+        self.content.is_bold()
+    }
+
+    pub fn is_italic(&self) -> bool {
+        self.content.is_italic()
+    }
+
+    pub fn color(&self) -> Color {
+        self.content.style.color
+    }
+
+    /// Set text content (fluent API).
+    pub fn set_text(&mut self, new_text: impl Into<String>) {
+        self.content.text = new_text.into();
+    }
+
+    /// Modify style (fluent API).
+    pub fn set_style(&mut self, style: crate::elements::TextStyle) {
+        self.content.style = style;
+    }
+}
+
+/// Strongly-typed image element with DOM capabilities.
+#[derive(Debug, Clone)]
+pub struct PdfImage {
+    pub id: ElementId,
+    pub content: ImageContent,
+    pub path: ElementPath,
+}
+
+impl PdfImage {
+    pub fn id(&self) -> ElementId {
+        self.id
+    }
+
+    pub fn bbox(&self) -> Rect {
+        self.content.bbox
+    }
+
+    pub fn format(&self) -> crate::elements::ImageFormat {
+        self.content.format
+    }
+
+    pub fn dimensions(&self) -> (u32, u32) {
+        (self.content.width, self.content.height)
+    }
+
+    pub fn aspect_ratio(&self) -> f32 {
+        self.content.aspect_ratio()
+    }
+
+    pub fn is_grayscale(&self) -> bool {
+        self.content.is_grayscale()
+    }
+
+    pub fn alt_text(&self) -> Option<&str> {
+        self.content.alt_text.as_deref()
+    }
+
+    /// Set alternative text (fluent API).
+    pub fn set_alt_text(&mut self, alt: impl Into<String>) {
+        self.content.alt_text = Some(alt.into());
+    }
+}
+
+/// Strongly-typed path/graphics element with DOM capabilities.
+#[derive(Debug, Clone)]
+pub struct PdfPath {
+    id: ElementId,
+    content: PathContent,
+    path: ElementPath,
+}
+
+impl PdfPath {
+    pub fn id(&self) -> ElementId {
+        self.id
+    }
+
+    pub fn bbox(&self) -> Rect {
+        self.content.bbox
+    }
+}
+
+/// Strongly-typed table element with DOM capabilities.
+#[derive(Debug, Clone)]
+pub struct PdfTable {
+    id: ElementId,
+    content: TableContent,
+    path: ElementPath,
+}
+
+impl PdfTable {
+    pub fn id(&self) -> ElementId {
+        self.id
+    }
+
+    pub fn bbox(&self) -> Rect {
+        self.content.bbox
+    }
+
+    pub fn row_count(&self) -> usize {
+        self.content.row_count()
+    }
+
+    pub fn column_count(&self) -> usize {
+        self.content.column_count()
+    }
+}
+
+/// Strongly-typed structure element with DOM capabilities.
+#[derive(Debug, Clone)]
+pub struct PdfStructure {
+    id: ElementId,
+    content: StructureElement,
+    path: ElementPath,
+}
+
+impl PdfStructure {
+    pub fn id(&self) -> ElementId {
+        self.id
+    }
+
+    pub fn structure_type(&self) -> &str {
+        &self.content.structure_type
+    }
+
+    pub fn bbox(&self) -> Rect {
+        self.content.bbox
+    }
+}
+
+/// Enum wrapper for mixed query results that can contain multiple element types.
+#[derive(Debug, Clone)]
+pub enum PdfElement {
+    Text(PdfText),
+    Image(PdfImage),
+    Path(PdfPath),
+    Table(PdfTable),
+    Structure(PdfStructure),
+}
+
+impl PdfElement {
+    pub fn as_text(&self) -> Option<&PdfText> {
+        match self {
+            PdfElement::Text(t) => Some(t),
+            _ => None,
+        }
+    }
+
+    pub fn as_image(&self) -> Option<&PdfImage> {
+        match self {
+            PdfElement::Image(i) => Some(i),
+            _ => None,
+        }
+    }
+
+    pub fn as_path(&self) -> Option<&PdfPath> {
+        match self {
+            PdfElement::Path(p) => Some(p),
+            _ => None,
+        }
+    }
+
+    pub fn as_table(&self) -> Option<&PdfTable> {
+        match self {
+            PdfElement::Table(t) => Some(t),
+            _ => None,
+        }
+    }
+
+    pub fn as_structure(&self) -> Option<&PdfStructure> {
+        match self {
+            PdfElement::Structure(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn is_text(&self) -> bool {
+        matches!(self, PdfElement::Text(_))
+    }
+
+    pub fn is_image(&self) -> bool {
+        matches!(self, PdfElement::Image(_))
+    }
+
+    pub fn is_path(&self) -> bool {
+        matches!(self, PdfElement::Path(_))
+    }
+
+    pub fn is_table(&self) -> bool {
+        matches!(self, PdfElement::Table(_))
+    }
+
+    pub fn is_structure(&self) -> bool {
+        matches!(self, PdfElement::Structure(_))
+    }
+
+    pub fn bbox(&self) -> Rect {
+        match self {
+            PdfElement::Text(t) => t.bbox(),
+            PdfElement::Image(i) => i.bbox(),
+            PdfElement::Path(p) => p.bbox(),
+            PdfElement::Table(t) => t.bbox(),
+            PdfElement::Structure(s) => s.bbox(),
+        }
+    }
+
+    pub fn id(&self) -> ElementId {
+        match self {
+            PdfElement::Text(t) => t.id(),
+            PdfElement::Image(i) => i.id(),
+            PdfElement::Path(p) => p.id(),
+            PdfElement::Table(t) => t.id(),
+            PdfElement::Structure(s) => s.id(),
+        }
+    }
+}
+
+/// Page with DOM-like editing capabilities.
+pub struct PdfPage {
+    pub page_index: usize,
+    pub root: StructureElement,
+    element_map: HashMap<ElementId, ElementPath>,
+    dirty_elements: HashSet<ElementId>,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl PdfPage {
+    /// Create a new PdfPage from a StructureElement.
+    pub fn from_structure(
+        page_index: usize,
+        root: StructureElement,
+        width: f32,
+        height: f32,
+    ) -> Self {
+        let mut page = Self {
+            page_index,
+            root,
+            element_map: HashMap::new(),
+            dirty_elements: HashSet::new(),
+            width,
+            height,
+        };
+        page.rebuild_element_map();
+        page
+    }
+
+    /// Rebuild the element ID-to-path mapping.
+    fn rebuild_element_map(&mut self) {
+        self.element_map.clear();
+        let children = self.root.children.clone();
+        self.traverse_and_map(&children, ElementPath::new());
+    }
+
+    /// Traverse the tree and map element IDs to paths.
+    fn traverse_and_map(&mut self, children: &[ContentElement], path: ElementPath) {
+        for (idx, child) in children.iter().enumerate() {
+            let child_path = path.with_child(idx);
+            let id = ElementId::new();
+            self.element_map.insert(id, child_path.clone());
+
+            // Recursively traverse structure elements
+            if let ContentElement::Structure(s) = child {
+                self.traverse_and_map(&s.children, child_path);
+            }
+        }
+    }
+
+    /// Get the root element as a PdfElement.
+    pub fn root(&self) -> PdfElement {
+        let id = ElementId::new();
+        PdfElement::Structure(PdfStructure {
+            id,
+            content: self.root.clone(),
+            path: ElementPath::new(),
+        })
+    }
+
+    /// Get all top-level children as strongly-typed elements.
+    pub fn children(&self) -> Vec<PdfElement> {
+        self.root
+            .children
+            .iter()
+            .enumerate()
+            .map(|(idx, child)| {
+                let path = ElementPath::new().with_child(idx);
+                let id = self.get_id_for_path(&path);
+                self.wrap_element(id, path, child)
+            })
+            .collect()
+    }
+
+    /// Wrap a ContentElement with ID and path information.
+    fn wrap_element(
+        &self,
+        id: ElementId,
+        path: ElementPath,
+        element: &ContentElement,
+    ) -> PdfElement {
+        match element {
+            ContentElement::Text(t) => PdfElement::Text(PdfText {
+                id,
+                content: t.clone(),
+                path,
+            }),
+            ContentElement::Image(i) => PdfElement::Image(PdfImage {
+                id,
+                content: i.clone(),
+                path,
+            }),
+            ContentElement::Path(p) => PdfElement::Path(PdfPath {
+                id,
+                content: p.clone(),
+                path,
+            }),
+            ContentElement::Table(t) => PdfElement::Table(PdfTable {
+                id,
+                content: t.clone(),
+                path,
+            }),
+            ContentElement::Structure(s) => PdfElement::Structure(PdfStructure {
+                id,
+                content: s.clone(),
+                path,
+            }),
+        }
+    }
+
+    /// Find text containing the specified needle string.
+    pub fn find_text_containing(&self, needle: &str) -> Vec<PdfText> {
+        self.find_text(|t| t.text().contains(needle))
+    }
+
+    /// Find text elements matching the predicate.
+    pub fn find_text<F>(&self, predicate: F) -> Vec<PdfText>
+    where
+        F: Fn(&PdfText) -> bool,
+    {
+        let mut results = Vec::new();
+        self.collect_text_recursive(
+            &self.root.children,
+            ElementPath::new(),
+            &predicate,
+            &mut results,
+        );
+        results
+    }
+
+    /// Recursively collect text elements matching predicate.
+    fn collect_text_recursive<F>(
+        &self,
+        children: &[ContentElement],
+        path: ElementPath,
+        predicate: &F,
+        results: &mut Vec<PdfText>,
+    ) where
+        F: Fn(&PdfText) -> bool,
+    {
+        for (idx, child) in children.iter().enumerate() {
+            let child_path = path.with_child(idx);
+            match child {
+                ContentElement::Text(t) => {
+                    let id = self.get_id_for_path(&child_path);
+                    let pdf_text = PdfText {
+                        id,
+                        content: t.clone(),
+                        path: child_path,
+                    };
+                    if predicate(&pdf_text) {
+                        results.push(pdf_text);
+                    }
+                },
+                ContentElement::Structure(s) => {
+                    self.collect_text_recursive(&s.children, child_path, predicate, results);
+                },
+                _ => {},
+            }
+        }
+    }
+
+    /// Find all images on the page.
+    pub fn find_images(&self) -> Vec<PdfImage> {
+        self.find_images_internal(ElementPath::new())
+    }
+
+    /// Find images in a specific region.
+    pub fn find_images_in_region(&self, region: Rect) -> Vec<PdfImage> {
+        self.find_images()
+            .into_iter()
+            .filter(|img| {
+                let bbox = img.bbox();
+                // Check if image intersects with region
+                bbox.x < region.x + region.width
+                    && bbox.x + bbox.width > region.x
+                    && bbox.y < region.y + region.height
+                    && bbox.y + bbox.height > region.y
+            })
+            .collect()
+    }
+
+    /// Recursively collect image elements.
+    fn find_images_internal(&self, path: ElementPath) -> Vec<PdfImage> {
+        let mut results = Vec::new();
+        self.collect_images_recursive(&self.root.children, path, &mut results);
+        results
+    }
+
+    fn collect_images_recursive(
+        &self,
+        children: &[ContentElement],
+        path: ElementPath,
+        results: &mut Vec<PdfImage>,
+    ) {
+        for (idx, child) in children.iter().enumerate() {
+            let child_path = path.with_child(idx);
+            match child {
+                ContentElement::Image(i) => {
+                    let id = self.get_id_for_path(&child_path);
+                    results.push(PdfImage {
+                        id,
+                        content: i.clone(),
+                        path: child_path,
+                    });
+                },
+                ContentElement::Structure(s) => {
+                    self.collect_images_recursive(&s.children, child_path, results);
+                },
+                _ => {},
+            }
+        }
+    }
+
+    /// Find elements in a specific region.
+    pub fn find_in_region(&self, region: Rect) -> Vec<PdfElement> {
+        let mut results = Vec::new();
+        self.collect_in_region_recursive(
+            &self.root.children,
+            ElementPath::new(),
+            region,
+            &mut results,
+        );
+        results
+    }
+
+    fn collect_in_region_recursive(
+        &self,
+        children: &[ContentElement],
+        path: ElementPath,
+        region: Rect,
+        results: &mut Vec<PdfElement>,
+    ) {
+        for (idx, child) in children.iter().enumerate() {
+            let child_path = path.with_child(idx);
+            let bbox = child.bbox();
+
+            // Check if element intersects with region
+            if bbox.x < region.x + region.width
+                && bbox.x + bbox.width > region.x
+                && bbox.y < region.y + region.height
+                && bbox.y + bbox.height > region.y
+            {
+                let id = self.get_id_for_path(&child_path);
+                let element = self.wrap_element(id, child_path.clone(), child);
+                results.push(element);
+            }
+
+            // Recurse into structures
+            if let ContentElement::Structure(s) = child {
+                self.collect_in_region_recursive(&s.children, child_path, region, results);
+            }
+        }
+    }
+
+    /// Modify text element by ID.
+    pub fn modify_text<F>(&mut self, id: ElementId, f: F) -> crate::error::Result<()>
+    where
+        F: FnOnce(&mut TextContent),
+    {
+        if let Some(path) = self.element_map.get(&id).cloned() {
+            self.modify_text_by_path(&path, f)?;
+            self.dirty_elements.insert(id);
+        }
+        Ok(())
+    }
+
+    /// Set text content by ID.
+    pub fn set_text(
+        &mut self,
+        id: ElementId,
+        new_text: impl Into<String>,
+    ) -> crate::error::Result<()> {
+        self.modify_text(id, |t| {
+            t.text = new_text.into();
+        })
+    }
+
+    /// Modify text by path.
+    fn modify_text_by_path<F>(&mut self, path: &ElementPath, f: F) -> crate::error::Result<()>
+    where
+        F: FnOnce(&mut TextContent),
+    {
+        let mut current = &mut self.root.children;
+
+        for (i, &idx) in path.path.iter().enumerate() {
+            if idx >= current.len() {
+                return Ok(());
+            }
+
+            if i == path.path.len() - 1 {
+                // Last index - modify the text element
+                if let ContentElement::Text(ref mut text) = current[idx] {
+                    f(text);
+                }
+                return Ok(());
+            }
+
+            // Navigate deeper
+            if let ContentElement::Structure(ref mut structure) = current[idx] {
+                current = &mut structure.children;
+            } else {
+                return Ok(());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Set image alt text by ID.
+    pub fn set_image_alt_text(
+        &mut self,
+        id: ElementId,
+        alt: impl Into<String>,
+    ) -> crate::error::Result<()> {
+        if let Some(path) = self.element_map.get(&id).cloned() {
+            self.modify_image_by_path(&path, |img| {
+                img.alt_text = Some(alt.into());
+            })?;
+            self.dirty_elements.insert(id);
+        }
+        Ok(())
+    }
+
+    /// Modify image by path.
+    fn modify_image_by_path<F>(&mut self, path: &ElementPath, f: F) -> crate::error::Result<()>
+    where
+        F: FnOnce(&mut ImageContent),
+    {
+        let mut current = &mut self.root.children;
+
+        for (i, &idx) in path.path.iter().enumerate() {
+            if idx >= current.len() {
+                return Ok(());
+            }
+
+            if i == path.path.len() - 1 {
+                // Last index - modify the image element
+                if let ContentElement::Image(ref mut image) = current[idx] {
+                    f(image);
+                }
+                return Ok(());
+            }
+
+            // Navigate deeper
+            if let ContentElement::Structure(ref mut structure) = current[idx] {
+                current = &mut structure.children;
+            } else {
+                return Ok(());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get element by ID (if it's still in the map).
+    pub fn get_element(&self, id: ElementId) -> Option<PdfElement> {
+        self.element_map.get(&id).and_then(|path| {
+            self.get_element_by_path(path)
+                .map(|elem| self.wrap_element(id, path.clone(), elem))
+        })
+    }
+
+    /// Get element by path.
+    fn get_element_by_path(&self, path: &ElementPath) -> Option<&ContentElement> {
+        let mut current = &self.root.children;
+
+        for &idx in &path.path {
+            if idx >= current.len() {
+                return None;
+            }
+
+            if let ContentElement::Structure(ref structure) = current[idx] {
+                current = &structure.children;
+            } else if path.path.last() == Some(&idx) {
+                return Some(&current[idx]);
+            } else {
+                return None;
+            }
+        }
+
+        None
+    }
+
+    /// Get parent structure by element ID (returns None if element is root or not found).
+    pub fn get_parent(&self, _id: ElementId) -> Option<PdfStructure> {
+        // This would require storing parent IDs during traversal.
+        // For now, return None as a placeholder.
+        None
+    }
+
+    /// Get children of a structure element by ID.
+    pub fn get_children(&self, id: ElementId) -> Vec<PdfElement> {
+        if let Some(element) = self.get_element(id) {
+            if let PdfElement::Structure(structure) = element {
+                return structure
+                    .content
+                    .children
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, child)| {
+                        let path = ElementPath::new().with_child(idx);
+                        let child_id = self.get_id_for_path(&path);
+                        self.wrap_element(child_id, path, child)
+                    })
+                    .collect();
+            }
+        }
+        Vec::new()
+    }
+
+    /// Set an element at a specific path in the tree (internal use for fluent API).
+    fn set_element_at_path(
+        &mut self,
+        path: &ElementPath,
+        element: ContentElement,
+    ) -> crate::error::Result<()> {
+        let mut current = &mut self.root.children;
+
+        for (i, &idx) in path.path.iter().enumerate() {
+            if idx >= current.len() {
+                return Ok(());
+            }
+
+            if i == path.path.len() - 1 {
+                // Last index - replace the element
+                current[idx] = element;
+                return Ok(());
+            }
+
+            // Navigate deeper
+            if let ContentElement::Structure(ref mut structure) = current[idx] {
+                current = &mut structure.children;
+            } else {
+                return Ok(());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get the correct ElementId for a path by looking it up in the element_map.
+    /// Creates a reverse lookup from path to ID.
+    fn get_id_for_path(&self, path: &ElementPath) -> ElementId {
+        self.element_map
+            .iter()
+            .find_map(|(id, stored_path)| {
+                if stored_path.path == path.path {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(ElementId::new)
+    }
+}
+
+/// Fluent page editor for chainable operations (XMLDocument-style API).
+///
+/// Enables chaining operations like:
+/// ```ignore
+/// doc.edit_page(0)?
+///    .find_text("Hello")?
+///    .for_each(|mut text| text.set_text("Hi"))?
+///    .done()?;
+/// ```
+pub struct PageEditor {
+    pub page: PdfPage,
+}
+
+impl PageEditor {
+    /// Find text elements containing a needle string.
+    pub fn find_text_containing(
+        self,
+        needle: &str,
+    ) -> crate::error::Result<TextElementCollectionEditor> {
+        let elements = self.page.find_text_containing(needle);
+        let element_ids = elements.iter().map(|e| e.id()).collect();
+        Ok(TextElementCollectionEditor {
+            page: self.page,
+            element_ids,
+        })
+    }
+
+    /// Find text elements matching a predicate.
+    pub fn find_text<F>(self, predicate: F) -> crate::error::Result<TextElementCollectionEditor>
+    where
+        F: Fn(&PdfText) -> bool,
+    {
+        let elements = self.page.find_text(predicate);
+        let element_ids = elements.iter().map(|e| e.id()).collect();
+        Ok(TextElementCollectionEditor {
+            page: self.page,
+            element_ids,
+        })
+    }
+
+    /// Find all images on the page.
+    pub fn find_images(self) -> crate::error::Result<ImageElementCollectionEditor> {
+        let elements = self.page.find_images();
+        let element_ids = elements.iter().map(|e| e.id()).collect();
+        Ok(ImageElementCollectionEditor {
+            page: self.page,
+            element_ids,
+        })
+    }
+
+    /// Finish editing and return the modified page.
+    pub fn done(self) -> crate::error::Result<PdfPage> {
+        Ok(self.page)
+    }
+}
+
+/// Fluent text element collection editor.
+pub struct TextElementCollectionEditor {
+    pub page: PdfPage,
+    pub element_ids: Vec<ElementId>,
+}
+
+impl TextElementCollectionEditor {
+    /// Apply a function to each text element.
+    pub fn for_each<F>(mut self, mut f: F) -> crate::error::Result<Self>
+    where
+        F: FnMut(&mut PdfText) -> crate::error::Result<()>,
+    {
+        for &id in self.element_ids.iter() {
+            // Get the current element from the page
+            if let Some(PdfElement::Text(mut text)) = self.page.get_element(id) {
+                // Call the user's closure on the mutable element
+                f(&mut text)?;
+
+                // Sync the modifications back to the page using the stored path
+                self.page
+                    .set_element_at_path(&text.path, ContentElement::Text(text.content))?;
+            }
+        }
+        Ok(self)
+    }
+
+    /// Finish editing and return the modified page.
+    pub fn done(self) -> crate::error::Result<PdfPage> {
+        Ok(self.page)
+    }
+}
+
+/// Fluent image element collection editor.
+pub struct ImageElementCollectionEditor {
+    pub page: PdfPage,
+    pub element_ids: Vec<ElementId>,
+}
+
+impl ImageElementCollectionEditor {
+    /// Apply a function to each image element.
+    pub fn for_each<F>(mut self, mut f: F) -> crate::error::Result<Self>
+    where
+        F: FnMut(&mut PdfImage) -> crate::error::Result<()>,
+    {
+        for &id in self.element_ids.iter() {
+            // Get the current element from the page
+            if let Some(PdfElement::Image(mut image)) = self.page.get_element(id) {
+                // Call the user's closure on the mutable element
+                f(&mut image)?;
+
+                // Sync the modifications back to the page using the stored path
+                self.page
+                    .set_element_at_path(&image.path, ContentElement::Image(image.content))?;
+            }
+        }
+        Ok(self)
+    }
+
+    /// Finish editing and return the modified page.
+    pub fn done(self) -> crate::error::Result<PdfPage> {
+        Ok(self.page)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_element_id_generation() {
+        let id1 = ElementId::new();
+        let id2 = ElementId::new();
+        assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn test_pdf_page_creation() {
+        let root = StructureElement {
+            structure_type: "Document".to_string(),
+            bbox: Rect::new(0.0, 0.0, 612.0, 792.0),
+            children: Vec::new(),
+            reading_order: Some(0),
+            alt_text: None,
+            language: None,
+        };
+
+        let page = PdfPage::from_structure(0, root, 612.0, 792.0);
+        assert_eq!(page.page_index, 0);
+        assert_eq!(page.width, 612.0);
+        assert_eq!(page.height, 792.0);
+    }
+}

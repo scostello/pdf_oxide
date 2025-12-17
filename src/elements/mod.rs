@@ -43,6 +43,8 @@ pub use table::{
 };
 pub use text::{FontSpec, FontStyle, TextContent, TextStyle};
 
+// Note: StructureElement is defined inline in this module, not in a submodule
+
 use crate::geometry::Rect;
 
 /// A content element that can be extracted from or written to a PDF.

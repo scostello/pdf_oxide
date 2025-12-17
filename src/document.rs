@@ -2348,6 +2348,7 @@ impl PdfDocument {
         extractor.extract_text_spans(&content_data)
     }
 
+<<<<<<< HEAD
     /// Apply intelligent text post-processing to extracted text spans.
     ///
     /// This method applies several text quality improvements:
@@ -2421,6 +2422,50 @@ impl PdfDocument {
         }
 
         spans
+    }
+
+    /// Extract hierarchical content structure from a page.
+    ///
+    /// Returns the page's hierarchical content structure with all children populated.
+    /// For tagged PDFs with structure trees, returns the structure with extracted content.
+    /// For untagged PDFs, returns a synthetic hierarchy based on geometric analysis.
+    ///
+    /// # Arguments
+    ///
+    /// * `page_index` - The page to extract from (0-indexed)
+    ///
+    /// # Returns
+    ///
+    /// `Ok(Some(structure))` if structure is found or generated,
+    /// `Ok(None)` if no structure is available,
+    /// `Err` if an error occurs during extraction
+    ///
+    /// # PDF Spec Compliance
+    ///
+    /// - ISO 32000-1:2008, Section 14.7 - Logical Structure
+    /// - ISO 32000-1:2008, Section 14.8 - Tagged PDF
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use pdf_oxide::document::PdfDocument;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut doc = PdfDocument::open("example.pdf")?;
+    ///
+    /// // Extract hierarchical structure from first page
+    /// if let Some(structure) = doc.extract_hierarchical_content(0)? {
+    ///     println!("Document structure type: {}", structure.structure_type);
+    ///     println!("Number of children: {}", structure.children.len());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn extract_hierarchical_content(
+        &mut self,
+        page_index: usize,
+    ) -> Result<Option<crate::elements::StructureElement>> {
+        use crate::extractors::HierarchicalExtractor;
+        HierarchicalExtractor::extract_page(self, page_index)
     }
 
     /// Get the raw content stream data for a page.
