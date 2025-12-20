@@ -197,6 +197,141 @@ impl SaveOptions {
     }
 }
 
+/// Encryption algorithm for PDF security.
+///
+/// Per ISO 32000-1:2008 Section 7.6, PDF supports multiple encryption algorithms.
+/// This enum represents the commonly used algorithms.
+///
+/// **Note**: This is a placeholder for v0.4.0 encryption support.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EncryptionAlgorithm {
+    /// RC4 with 40-bit key (PDF 1.1+, considered weak).
+    Rc4_40,
+    /// RC4 with 128-bit key (PDF 1.4+).
+    Rc4_128,
+    /// AES with 128-bit key (PDF 1.5+).
+    Aes128,
+    /// AES with 256-bit key (PDF 1.7 Extension Level 3+, recommended).
+    #[default]
+    Aes256,
+}
+
+/// Permission flags for encrypted PDFs.
+///
+/// Per ISO 32000-1:2008 Section 7.6.3.2, these flags control what operations
+/// are permitted when the document is opened with the user password.
+///
+/// **Note**: This is a placeholder for v0.4.0 encryption support.
+#[derive(Debug, Clone, Default)]
+pub struct Permissions {
+    /// Allow printing the document.
+    pub print: bool,
+    /// Allow high-resolution printing.
+    pub print_high_quality: bool,
+    /// Allow modifying the document contents.
+    pub modify: bool,
+    /// Allow copying or extracting text and graphics.
+    pub copy: bool,
+    /// Allow adding annotations and form fields.
+    pub annotate: bool,
+    /// Allow filling in form fields.
+    pub fill_forms: bool,
+    /// Allow extracting content for accessibility.
+    pub accessibility: bool,
+    /// Allow document assembly (insert, rotate, delete pages).
+    pub assemble: bool,
+}
+
+impl Permissions {
+    /// Create with all permissions granted.
+    pub fn all() -> Self {
+        Self {
+            print: true,
+            print_high_quality: true,
+            modify: true,
+            copy: true,
+            annotate: true,
+            fill_forms: true,
+            accessibility: true,
+            assemble: true,
+        }
+    }
+
+    /// Create with minimal permissions (view only).
+    pub fn read_only() -> Self {
+        Self {
+            accessibility: true, // Always allow for compliance
+            ..Default::default()
+        }
+    }
+}
+
+/// Configuration for PDF encryption on save.
+///
+/// This struct configures how a PDF should be encrypted when saved.
+/// Use with `SaveOptions::with_encryption()` to enable encryption.
+///
+/// # Example (Planned for v0.4.0)
+///
+/// ```ignore
+/// use pdf_oxide::editor::{EncryptionConfig, EncryptionAlgorithm, Permissions};
+///
+/// let config = EncryptionConfig {
+///     user_password: "user123".to_string(),
+///     owner_password: "owner456".to_string(),
+///     algorithm: EncryptionAlgorithm::Aes256,
+///     permissions: Permissions::all(),
+/// };
+/// ```
+///
+/// **Note**: This is a placeholder for v0.4.0 encryption support.
+/// Currently, PDFs are saved without encryption.
+#[derive(Debug, Clone)]
+pub struct EncryptionConfig {
+    /// Password required to open the document (can be empty for no user password).
+    pub user_password: String,
+    /// Password for full access and changing security settings.
+    pub owner_password: String,
+    /// Encryption algorithm to use.
+    pub algorithm: EncryptionAlgorithm,
+    /// Permission flags when opened with user password.
+    pub permissions: Permissions,
+}
+
+impl Default for EncryptionConfig {
+    fn default() -> Self {
+        Self {
+            user_password: String::new(),
+            owner_password: String::new(),
+            algorithm: EncryptionAlgorithm::default(),
+            permissions: Permissions::all(),
+        }
+    }
+}
+
+impl EncryptionConfig {
+    /// Create a new encryption config with the given passwords.
+    pub fn new(user_password: impl Into<String>, owner_password: impl Into<String>) -> Self {
+        Self {
+            user_password: user_password.into(),
+            owner_password: owner_password.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Set the encryption algorithm.
+    pub fn with_algorithm(mut self, algorithm: EncryptionAlgorithm) -> Self {
+        self.algorithm = algorithm;
+        self
+    }
+
+    /// Set the permissions.
+    pub fn with_permissions(mut self, permissions: Permissions) -> Self {
+        self.permissions = permissions;
+        self
+    }
+}
+
 /// Trait for editable document operations.
 pub trait EditableDocument {
     /// Get document metadata.

@@ -208,13 +208,13 @@ mod dom_api_tests {
         let page = create_test_page();
 
         // Test fluent API with mutable modification
-        let mut editor = pdf_oxide::editor::PageEditor { page };
+        let editor = pdf_oxide::editor::PageEditor { page };
         let result = editor
             .find_text_containing("Hello")
             .expect("find_text_containing failed");
 
         let modified = result
-            .for_each(|mut text| {
+            .for_each(|text| {
                 text.set_text("Hi");
                 Ok(())
             })
@@ -236,7 +236,7 @@ mod dom_api_tests {
         let result = pdf_oxide::editor::PageEditor { page }
             .find_text_containing("Hello")
             .expect("find_text_containing failed")
-            .for_each(|mut text| {
+            .for_each(|text| {
                 text.set_text("Modified");
                 Ok(())
             })
@@ -256,7 +256,7 @@ mod dom_api_tests {
         let result = pdf_oxide::editor::PageEditor { page }
             .find_text(|t| t.text().starts_with("Hello"))
             .expect("find_text failed")
-            .for_each(|mut text| {
+            .for_each(|text| {
                 text.set_text("Updated");
                 Ok(())
             })

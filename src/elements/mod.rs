@@ -39,7 +39,7 @@ pub use image::{ColorSpace, ImageContent, ImageFormat};
 pub use path::{LineCap, LineJoin, PathContent, PathOperation};
 pub use table::{
     TableCellAlign, TableCellContent, TableCellVAlign, TableContent, TableContentStyle,
-    TableRowContent,
+    TableDetectionInfo, TableRowContent, TableSource,
 };
 pub use text::{FontSpec, FontStyle, TextContent, TextStyle};
 

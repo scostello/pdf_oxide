@@ -5,7 +5,8 @@
 //! wrappers (PdfText, PdfImage, etc.) that provide domain-specific methods.
 
 use crate::elements::{
-    ContentElement, ImageContent, PathContent, StructureElement, TableContent, TextContent,
+    ContentElement, ImageContent, PathContent, PathOperation, StructureElement, TableCellContent,
+    TableContent, TextContent,
 };
 use crate::geometry::Rect;
 use crate::layout::Color;
@@ -150,44 +151,143 @@ impl PdfImage {
 /// Strongly-typed path/graphics element with DOM capabilities.
 #[derive(Debug, Clone)]
 pub struct PdfPath {
-    id: ElementId,
-    content: PathContent,
-    path: ElementPath,
+    /// Element ID for DOM tracking.
+    pub id: ElementId,
+    /// Underlying path content.
+    pub content: PathContent,
+    /// Path in the content tree.
+    pub path: ElementPath,
 }
 
 impl PdfPath {
+    /// Get the element ID.
     pub fn id(&self) -> ElementId {
         self.id
     }
 
+    /// Get the bounding box.
     pub fn bbox(&self) -> Rect {
         self.content.bbox
+    }
+
+    /// Get the path operations.
+    pub fn operations(&self) -> &[PathOperation] {
+        &self.content.operations
+    }
+
+    /// Get the stroke color.
+    pub fn stroke_color(&self) -> Option<Color> {
+        self.content.stroke_color
+    }
+
+    /// Get the fill color.
+    pub fn fill_color(&self) -> Option<Color> {
+        self.content.fill_color
+    }
+
+    /// Get the stroke width.
+    pub fn stroke_width(&self) -> f32 {
+        self.content.stroke_width
+    }
+
+    /// Set the stroke color.
+    pub fn set_stroke_color(&mut self, color: Option<Color>) {
+        self.content.stroke_color = color;
+    }
+
+    /// Set the fill color.
+    pub fn set_fill_color(&mut self, color: Option<Color>) {
+        self.content.fill_color = color;
+    }
+
+    /// Set the stroke width.
+    pub fn set_stroke_width(&mut self, width: f32) {
+        self.content.stroke_width = width;
+    }
+
+    /// Check if this path has a stroke.
+    pub fn has_stroke(&self) -> bool {
+        self.content.has_stroke()
+    }
+
+    /// Check if this path has a fill.
+    pub fn has_fill(&self) -> bool {
+        self.content.has_fill()
     }
 }
 
 /// Strongly-typed table element with DOM capabilities.
 #[derive(Debug, Clone)]
 pub struct PdfTable {
-    id: ElementId,
-    content: TableContent,
-    path: ElementPath,
+    /// Element ID for DOM tracking.
+    pub id: ElementId,
+    /// Underlying table content.
+    pub content: TableContent,
+    /// Path in the content tree.
+    pub path: ElementPath,
 }
 
 impl PdfTable {
+    /// Get the element ID.
     pub fn id(&self) -> ElementId {
         self.id
     }
 
+    /// Get the bounding box.
     pub fn bbox(&self) -> Rect {
         self.content.bbox
     }
 
+    /// Get the number of rows.
     pub fn row_count(&self) -> usize {
         self.content.row_count()
     }
 
+    /// Get the number of columns.
     pub fn column_count(&self) -> usize {
         self.content.column_count()
+    }
+
+    /// Check if the table has a header row.
+    pub fn has_header(&self) -> bool {
+        self.content.has_header()
+    }
+
+    /// Get a cell at the specified row and column.
+    pub fn get_cell(&self, row: usize, col: usize) -> Option<&TableCellContent> {
+        self.content.get_cell(row, col)
+    }
+
+    /// Get the table caption.
+    pub fn caption(&self) -> Option<&str> {
+        self.content.caption.as_deref()
+    }
+
+    /// Set the text of a cell at the specified row and column.
+    /// Returns true if the cell was found and updated.
+    pub fn set_cell_text(&mut self, row: usize, col: usize, text: impl Into<String>) -> bool {
+        if let Some(row_content) = self.content.rows.get_mut(row) {
+            if let Some(cell) = row_content.cells.get_mut(col) {
+                cell.text = text.into();
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Set the table caption.
+    pub fn set_caption(&mut self, caption: impl Into<String>) {
+        self.content.caption = Some(caption.into());
+    }
+
+    /// Get the detection confidence (if table was detected via heuristics).
+    pub fn detection_confidence(&self) -> f32 {
+        self.content.detection_confidence()
+    }
+
+    /// Check if table came from structure tree (Tagged PDF).
+    pub fn is_from_structure_tree(&self) -> bool {
+        self.content.is_from_structure_tree()
     }
 }
 
@@ -694,20 +794,18 @@ impl PdfPage {
 
     /// Get children of a structure element by ID.
     pub fn get_children(&self, id: ElementId) -> Vec<PdfElement> {
-        if let Some(element) = self.get_element(id) {
-            if let PdfElement::Structure(structure) = element {
-                return structure
-                    .content
-                    .children
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, child)| {
-                        let path = ElementPath::new().with_child(idx);
-                        let child_id = self.get_id_for_path(&path);
-                        self.wrap_element(child_id, path, child)
-                    })
-                    .collect();
-            }
+        if let Some(PdfElement::Structure(structure)) = self.get_element(id) {
+            return structure
+                .content
+                .children
+                .iter()
+                .enumerate()
+                .map(|(idx, child)| {
+                    let path = ElementPath::new().with_child(idx);
+                    let child_id = self.get_id_for_path(&path);
+                    self.wrap_element(child_id, path, child)
+                })
+                .collect();
         }
         Vec::new()
     }
@@ -756,6 +854,158 @@ impl PdfPage {
             })
             .unwrap_or_else(ElementId::new)
     }
+
+    // === Add/Remove Element Methods ===
+
+    /// Add a text element to the page.
+    ///
+    /// The element is added as a direct child of the root structure.
+    /// Returns the ElementId of the newly added element.
+    pub fn add_text(&mut self, content: TextContent) -> ElementId {
+        let id = ElementId::new();
+        let idx = self.root.children.len();
+        let path = ElementPath::new().with_child(idx);
+
+        self.root.children.push(ContentElement::Text(content));
+        self.element_map.insert(id, path);
+        self.dirty_elements.insert(id);
+        id
+    }
+
+    /// Add an image element to the page.
+    ///
+    /// The element is added as a direct child of the root structure.
+    /// Returns the ElementId of the newly added element.
+    pub fn add_image(&mut self, content: ImageContent) -> ElementId {
+        let id = ElementId::new();
+        let idx = self.root.children.len();
+        let path = ElementPath::new().with_child(idx);
+
+        self.root.children.push(ContentElement::Image(content));
+        self.element_map.insert(id, path);
+        self.dirty_elements.insert(id);
+        id
+    }
+
+    /// Add a path/graphics element to the page.
+    ///
+    /// The element is added as a direct child of the root structure.
+    /// Returns the ElementId of the newly added element.
+    pub fn add_path(&mut self, content: PathContent) -> ElementId {
+        let id = ElementId::new();
+        let idx = self.root.children.len();
+        let path = ElementPath::new().with_child(idx);
+
+        self.root.children.push(ContentElement::Path(content));
+        self.element_map.insert(id, path);
+        self.dirty_elements.insert(id);
+        id
+    }
+
+    /// Add a table element to the page.
+    ///
+    /// The element is added as a direct child of the root structure.
+    /// Returns the ElementId of the newly added element.
+    pub fn add_table(&mut self, content: TableContent) -> ElementId {
+        let id = ElementId::new();
+        let idx = self.root.children.len();
+        let path = ElementPath::new().with_child(idx);
+
+        self.root.children.push(ContentElement::Table(content));
+        self.element_map.insert(id, path);
+        self.dirty_elements.insert(id);
+        id
+    }
+
+    /// Remove an element from the page by ID.
+    ///
+    /// Returns true if the element was found and removed, false otherwise.
+    /// Note: This only removes top-level elements. Nested elements within
+    /// structures cannot be removed this way.
+    pub fn remove_element(&mut self, id: ElementId) -> bool {
+        if let Some(path) = self.element_map.remove(&id) {
+            // Only handle top-level elements (path length = 1)
+            if path.path.len() == 1 {
+                let idx = path.path[0];
+                if idx < self.root.children.len() {
+                    self.root.children.remove(idx);
+                    self.dirty_elements.remove(&id);
+                    // Rebuild element map since indices have shifted
+                    self.rebuild_element_map();
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    // === Find Path/Table Methods ===
+
+    /// Find all paths on the page.
+    pub fn find_paths(&self) -> Vec<PdfPath> {
+        let mut results = Vec::new();
+        self.collect_paths_recursive(&self.root.children, ElementPath::new(), &mut results);
+        results
+    }
+
+    /// Recursively collect path elements.
+    fn collect_paths_recursive(
+        &self,
+        children: &[ContentElement],
+        path: ElementPath,
+        results: &mut Vec<PdfPath>,
+    ) {
+        for (idx, child) in children.iter().enumerate() {
+            let child_path = path.with_child(idx);
+            match child {
+                ContentElement::Path(p) => {
+                    let id = self.get_id_for_path(&child_path);
+                    results.push(PdfPath {
+                        id,
+                        content: p.clone(),
+                        path: child_path,
+                    });
+                },
+                ContentElement::Structure(s) => {
+                    self.collect_paths_recursive(&s.children, child_path, results);
+                },
+                _ => {},
+            }
+        }
+    }
+
+    /// Find all tables on the page.
+    pub fn find_tables(&self) -> Vec<PdfTable> {
+        let mut results = Vec::new();
+        self.collect_tables_recursive(&self.root.children, ElementPath::new(), &mut results);
+        results
+    }
+
+    /// Recursively collect table elements.
+    fn collect_tables_recursive(
+        &self,
+        children: &[ContentElement],
+        path: ElementPath,
+        results: &mut Vec<PdfTable>,
+    ) {
+        for (idx, child) in children.iter().enumerate() {
+            let child_path = path.with_child(idx);
+            match child {
+                ContentElement::Table(t) => {
+                    let id = self.get_id_for_path(&child_path);
+                    results.push(PdfTable {
+                        id,
+                        content: t.clone(),
+                        path: child_path,
+                    });
+                },
+                ContentElement::Structure(s) => {
+                    self.collect_tables_recursive(&s.children, child_path, results);
+                },
+                _ => {},
+            }
+        }
+    }
 }
 
 /// Fluent page editor for chainable operations (XMLDocument-style API).
@@ -803,6 +1053,26 @@ impl PageEditor {
         let elements = self.page.find_images();
         let element_ids = elements.iter().map(|e| e.id()).collect();
         Ok(ImageElementCollectionEditor {
+            page: self.page,
+            element_ids,
+        })
+    }
+
+    /// Find all path/graphics elements on the page.
+    pub fn find_paths(self) -> crate::error::Result<PathElementCollectionEditor> {
+        let elements = self.page.find_paths();
+        let element_ids = elements.iter().map(|e| e.id()).collect();
+        Ok(PathElementCollectionEditor {
+            page: self.page,
+            element_ids,
+        })
+    }
+
+    /// Find all table elements on the page.
+    pub fn find_tables(self) -> crate::error::Result<TableElementCollectionEditor> {
+        let elements = self.page.find_tables();
+        let element_ids = elements.iter().map(|e| e.id()).collect();
+        Ok(TableElementCollectionEditor {
             page: self.page,
             element_ids,
         })
@@ -867,6 +1137,74 @@ impl ImageElementCollectionEditor {
                 // Sync the modifications back to the page using the stored path
                 self.page
                     .set_element_at_path(&image.path, ContentElement::Image(image.content))?;
+            }
+        }
+        Ok(self)
+    }
+
+    /// Finish editing and return the modified page.
+    pub fn done(self) -> crate::error::Result<PdfPage> {
+        Ok(self.page)
+    }
+}
+
+/// Fluent path/graphics element collection editor.
+pub struct PathElementCollectionEditor {
+    /// The page being edited.
+    pub page: PdfPage,
+    /// IDs of the path elements in this collection.
+    pub element_ids: Vec<ElementId>,
+}
+
+impl PathElementCollectionEditor {
+    /// Apply a function to each path element.
+    pub fn for_each<F>(mut self, mut f: F) -> crate::error::Result<Self>
+    where
+        F: FnMut(&mut PdfPath) -> crate::error::Result<()>,
+    {
+        for &id in self.element_ids.iter() {
+            // Get the current element from the page
+            if let Some(PdfElement::Path(mut path)) = self.page.get_element(id) {
+                // Call the user's closure on the mutable element
+                f(&mut path)?;
+
+                // Sync the modifications back to the page using the stored path
+                self.page
+                    .set_element_at_path(&path.path, ContentElement::Path(path.content))?;
+            }
+        }
+        Ok(self)
+    }
+
+    /// Finish editing and return the modified page.
+    pub fn done(self) -> crate::error::Result<PdfPage> {
+        Ok(self.page)
+    }
+}
+
+/// Fluent table element collection editor.
+pub struct TableElementCollectionEditor {
+    /// The page being edited.
+    pub page: PdfPage,
+    /// IDs of the table elements in this collection.
+    pub element_ids: Vec<ElementId>,
+}
+
+impl TableElementCollectionEditor {
+    /// Apply a function to each table element.
+    pub fn for_each<F>(mut self, mut f: F) -> crate::error::Result<Self>
+    where
+        F: FnMut(&mut PdfTable) -> crate::error::Result<()>,
+    {
+        for &id in self.element_ids.iter() {
+            // Get the current element from the page
+            if let Some(PdfElement::Table(mut table)) = self.page.get_element(id) {
+                // Call the user's closure on the mutable element
+                f(&mut table)?;
+
+                // Sync the modifications back to the page using the stored path
+                self.page
+                    .set_element_at_path(&table.path, ContentElement::Table(table.content))?;
             }
         }
         Ok(self)

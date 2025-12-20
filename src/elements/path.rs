@@ -98,6 +98,126 @@ impl PathContent {
         self.fill_color.is_some()
     }
 
+    // === Convenience Constructors ===
+
+    /// Create a line path from (x1, y1) to (x2, y2).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let line = PathContent::line(10.0, 10.0, 100.0, 100.0);
+    /// ```
+    pub fn line(x1: f32, y1: f32, x2: f32, y2: f32) -> Self {
+        let ops = vec![PathOperation::MoveTo(x1, y1), PathOperation::LineTo(x2, y2)];
+        Self::from_operations(ops)
+    }
+
+    /// Create a rectangle path.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let rect = PathContent::rect(10.0, 10.0, 100.0, 50.0);
+    /// ```
+    pub fn rect(x: f32, y: f32, width: f32, height: f32) -> Self {
+        let ops = vec![PathOperation::Rectangle(x, y, width, height)];
+        Self::from_operations(ops)
+    }
+
+    /// Create an approximate circle path using Bezier curves.
+    ///
+    /// Uses 4 cubic Bezier curves to approximate a circle.
+    /// The approximation uses the constant k = 0.5522847498 for control points.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let circle = PathContent::circle(100.0, 100.0, 50.0);
+    /// ```
+    pub fn circle(cx: f32, cy: f32, radius: f32) -> Self {
+        // Magic constant for approximating a quarter circle with a cubic Bezier
+        // k = 4 * (sqrt(2) - 1) / 3 ≈ 0.5522847498
+        const K: f32 = 0.552_284_8;
+        let k = radius * K;
+
+        let ops = vec![
+            // Start at top
+            PathOperation::MoveTo(cx, cy + radius),
+            // Top-right quadrant
+            PathOperation::CurveTo(cx + k, cy + radius, cx + radius, cy + k, cx + radius, cy),
+            // Bottom-right quadrant
+            PathOperation::CurveTo(cx + radius, cy - k, cx + k, cy - radius, cx, cy - radius),
+            // Bottom-left quadrant
+            PathOperation::CurveTo(cx - k, cy - radius, cx - radius, cy - k, cx - radius, cy),
+            // Top-left quadrant
+            PathOperation::CurveTo(cx - radius, cy + k, cx - k, cy + radius, cx, cy + radius),
+            PathOperation::ClosePath,
+        ];
+        Self::from_operations(ops)
+    }
+
+    /// Create a rounded rectangle path.
+    ///
+    /// # Arguments
+    ///
+    /// * `x` - X coordinate of the bottom-left corner
+    /// * `y` - Y coordinate of the bottom-left corner
+    /// * `width` - Width of the rectangle
+    /// * `height` - Height of the rectangle
+    /// * `radius` - Corner radius (clamped to min(width, height) / 2)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let rounded = PathContent::rounded_rect(10.0, 10.0, 100.0, 50.0, 5.0);
+    /// ```
+    pub fn rounded_rect(x: f32, y: f32, width: f32, height: f32, radius: f32) -> Self {
+        // Clamp radius to maximum valid value
+        let max_radius = width.min(height) / 2.0;
+        let r = radius.min(max_radius).max(0.0);
+
+        if r <= 0.0 {
+            return Self::rect(x, y, width, height);
+        }
+
+        // Magic constant for approximating a quarter circle with a cubic Bezier
+        const K: f32 = 0.552_284_8;
+        let k = r * K;
+
+        let x_right = x + width;
+        let y_top = y + height;
+
+        let ops = vec![
+            // Start at bottom-left corner, right of curve
+            PathOperation::MoveTo(x + r, y),
+            // Bottom edge
+            PathOperation::LineTo(x_right - r, y),
+            // Bottom-right corner curve
+            PathOperation::CurveTo(x_right - r + k, y, x_right, y + r - k, x_right, y + r),
+            // Right edge
+            PathOperation::LineTo(x_right, y_top - r),
+            // Top-right corner curve
+            PathOperation::CurveTo(
+                x_right,
+                y_top - r + k,
+                x_right - r + k,
+                y_top,
+                x_right - r,
+                y_top,
+            ),
+            // Top edge
+            PathOperation::LineTo(x + r, y_top),
+            // Top-left corner curve
+            PathOperation::CurveTo(x + r - k, y_top, x, y_top - r + k, x, y_top - r),
+            // Left edge
+            PathOperation::LineTo(x, y + r),
+            // Bottom-left corner curve
+            PathOperation::CurveTo(x, y + r - k, x + r - k, y, x + r, y),
+            PathOperation::ClosePath,
+        ];
+        Self::from_operations(ops)
+    }
+
     /// Compute bounding box from path operations.
     fn compute_bbox(operations: &[PathOperation]) -> Rect {
         let mut min_x = f32::MAX;

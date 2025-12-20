@@ -5,6 +5,76 @@
 
 use crate::geometry::Rect;
 
+/// Source of table data - how the table was identified/created.
+///
+/// This tracks the origin of table content to help downstream consumers
+/// understand the reliability and nature of the table data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TableSource {
+    /// Table extracted from PDF structure tree (Tagged PDF).
+    ///
+    /// High confidence - explicitly marked in PDF per ISO 32000-1:2008 Section 14.8.4.3.4.
+    /// Includes THead, TBody, TFoot, TR, TH, TD elements.
+    StructureTree,
+    /// Table detected via spatial/heuristic analysis.
+    ///
+    /// Medium confidence - detected through layout analysis, grid detection,
+    /// or other spatial heuristics. May have false positives.
+    #[default]
+    SpatialDetection,
+    /// Table created programmatically by the user/API.
+    ///
+    /// High confidence - explicitly constructed for PDF generation.
+    UserGenerated,
+}
+
+/// Detection metadata for tables.
+///
+/// Provides additional context about how a table was detected,
+/// including confidence scores for heuristic detections.
+#[derive(Debug, Clone, Default)]
+pub struct TableDetectionInfo {
+    /// Source of this table data.
+    pub source: TableSource,
+    /// Confidence score for heuristic detections (0.0 - 1.0).
+    ///
+    /// - StructureTree: always 1.0 (explicit PDF markup)
+    /// - SpatialDetection: varies based on detection quality
+    /// - UserGenerated: always 1.0 (explicit creation)
+    pub confidence: f32,
+    /// Optional detection method name for debugging.
+    pub detection_method: Option<String>,
+}
+
+impl TableDetectionInfo {
+    /// Create info for structure tree source (high confidence).
+    pub fn from_structure_tree() -> Self {
+        Self {
+            source: TableSource::StructureTree,
+            confidence: 1.0,
+            detection_method: Some("structure_tree".to_string()),
+        }
+    }
+
+    /// Create info for spatial detection with confidence.
+    pub fn from_spatial_detection(confidence: f32, method: impl Into<String>) -> Self {
+        Self {
+            source: TableSource::SpatialDetection,
+            confidence: confidence.clamp(0.0, 1.0),
+            detection_method: Some(method.into()),
+        }
+    }
+
+    /// Create info for user-generated table.
+    pub fn user_generated() -> Self {
+        Self {
+            source: TableSource::UserGenerated,
+            confidence: 1.0,
+            detection_method: None,
+        }
+    }
+}
+
 /// Table content element.
 ///
 /// Represents a table with rows, columns, and cells that can be
@@ -23,6 +93,8 @@ pub struct TableContent {
     pub caption: Option<String>,
     /// Table style information
     pub style: TableContentStyle,
+    /// Detection/source information
+    pub detection_info: TableDetectionInfo,
 }
 
 impl Default for TableContent {
@@ -34,6 +106,7 @@ impl Default for TableContent {
             reading_order: None,
             caption: None,
             style: TableContentStyle::default(),
+            detection_info: TableDetectionInfo::default(),
         }
     }
 }
@@ -70,6 +143,31 @@ impl TableContent {
     /// Check if the table has a header row.
     pub fn has_header(&self) -> bool {
         self.rows.first().is_some_and(|r| r.is_header)
+    }
+
+    /// Set the detection info for this table.
+    pub fn with_detection_info(mut self, info: TableDetectionInfo) -> Self {
+        self.detection_info = info;
+        self
+    }
+
+    /// Create a user-generated table.
+    pub fn user_generated(bbox: Rect) -> Self {
+        Self {
+            bbox,
+            detection_info: TableDetectionInfo::user_generated(),
+            ..Default::default()
+        }
+    }
+
+    /// Check if table came from structure tree.
+    pub fn is_from_structure_tree(&self) -> bool {
+        self.detection_info.source == TableSource::StructureTree
+    }
+
+    /// Get detection confidence.
+    pub fn detection_confidence(&self) -> f32 {
+        self.detection_info.confidence
     }
 }
 

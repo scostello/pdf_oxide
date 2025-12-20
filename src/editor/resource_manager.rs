@@ -102,11 +102,9 @@ impl ResourceManager {
     /// Returns None if the font is not registered.
     pub fn get_font_resource(&self, font_name: &str) -> Option<String> {
         let key = format!("font:{}", font_name);
-        if let Some(obj_ref) = self.fonts.get(&key) {
-            Some(format!("/F{}", obj_ref.id))
-        } else {
-            None
-        }
+        self.fonts
+            .get(&key)
+            .map(|obj_ref| format!("/F{}", obj_ref.id))
     }
 
     /// List all registered fonts.
@@ -142,8 +140,8 @@ impl ResourceManager {
     /// List all registered images.
     pub fn images(&self) -> Vec<(String, String)> {
         self.xobjects
-            .iter()
-            .map(|(_, obj_ref)| {
+            .values()
+            .map(|obj_ref| {
                 let key = format!("image:{}", obj_ref.id);
                 (key, format!("Im{}", obj_ref.id))
             })
@@ -168,8 +166,8 @@ impl ResourceManager {
     /// List all registered graphics states.
     pub fn graphics_states(&self) -> Vec<(String, String)> {
         self.graphics_states
-            .iter()
-            .map(|(_, obj_ref)| {
+            .values()
+            .map(|obj_ref| {
                 let key = format!("gs:{}", obj_ref.id);
                 (key, format!("GS{}", obj_ref.id))
             })
@@ -194,8 +192,8 @@ impl ResourceManager {
     /// List all registered patterns.
     pub fn patterns(&self) -> Vec<(String, String)> {
         self.patterns
-            .iter()
-            .map(|(_, obj_ref)| {
+            .values()
+            .map(|obj_ref| {
                 let key = format!("pattern:{}", obj_ref.id);
                 (key, format!("Pat{}", obj_ref.id))
             })
@@ -220,8 +218,8 @@ impl ResourceManager {
     /// List all registered shadings.
     pub fn shadings(&self) -> Vec<(String, String)> {
         self.shadings
-            .iter()
-            .map(|(_, obj_ref)| {
+            .values()
+            .map(|obj_ref| {
                 let key = format!("shading:{}", obj_ref.id);
                 (key, format!("Sh{}", obj_ref.id))
             })

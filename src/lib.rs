@@ -17,10 +17,11 @@
 
 //! # PDF Oxide
 //!
-//! Production-grade PDF parsing in Rust: 47.9× faster than PyMuPDF4LLM with PDF spec compliance.
+//! Production-grade PDF toolkit in Rust: 47.9× faster than PyMuPDF4LLM with PDF spec compliance.
 //!
-//! ## Core Features (v0.2.0)
+//! ## Core Features
 //!
+//! ### Reading & Extraction
 //! - **PDF Spec Compliance**: ISO 32000-1:2008 sections 9, 14.7-14.8
 //! - **Text Extraction**: 5-level character-to-Unicode priority (§9.10.2)
 //! - **Reading Order**: 4 pluggable strategies (XY-Cut, Structure Tree, Geometric, Simple)
@@ -28,13 +29,27 @@
 //! - **OCR Support**: DBNet++ detection + SVTR recognition with smart auto-detection
 //! - **Complex Scripts**: RTL (Arabic/Hebrew), CJK (Japanese/Korean/Chinese), Devanagari, Thai
 //! - **Format Conversion**: Markdown, HTML, PlainText, TOC
-//! - **Pluggable Architecture**: Trait-based design for extensibility
+//!
+//! ### Writing & Creation (v0.3.0)
+//! - **PDF Generation**: Fluent DocumentBuilder API for programmatic PDF creation
+//! - **Format Conversion**: Markdown → PDF, HTML → PDF, Plain Text → PDF
+//! - **Advanced Graphics**: Path operations, image embedding, table generation
+//! - **Font Embedding**: Automatic font subsetting for compact output
+//!
+//! ### Editing (v0.3.0)
+//! - **DOM-like API**: Query and modify PDF content with strongly-typed wrappers
+//! - **Element Modification**: Find and replace text, modify images, paths, tables
+//! - **Page Operations**: Add, remove, reorder, merge pages
+//! - **Metadata Editing**: Title, author, subject, keywords
+//! - **Incremental Saves**: Efficient appending without full rewrite
+//!
+//! ## Architecture
+//! - **Pluggable Design**: Trait-based extensibility for strategies and converters
 //! - **Python Bindings**: Full API via PyO3
+//! - **Symmetric Read/Write**: Unified ContentElement model for extraction and generation
 //!
-//! ## Planned for v0.3.0+
+//! ## Planned for v0.4.0+
 //!
-//! - **Bidirectional**: PDF generation from Markdown/HTML (v0.3.0)
-//! - **Tables**: Extract and generate tables (v0.4.0)
 //! - **Forms**: Interactive fillable form support (v0.4.0)
 //! - **Advanced**: Figures, citations, annotations, accessibility (v0.5.0+)
 //!

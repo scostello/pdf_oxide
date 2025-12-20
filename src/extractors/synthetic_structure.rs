@@ -98,7 +98,7 @@ impl SyntheticStructureGenerator {
         // Step 3: Build hierarchical structure
         let children = sections
             .into_iter()
-            .map(|section| ContentElement::Structure(section))
+            .map(ContentElement::Structure)
             .collect();
 
         Ok(StructureElement {
@@ -129,7 +129,7 @@ impl SyntheticStructureGenerator {
 
             // If gap is too large, start a new paragraph
             if gap > self.config.paragraph_gap_threshold && !current_paragraph.is_empty() {
-                paragraphs.push(self.create_paragraph(current_paragraph.drain(..).collect()));
+                paragraphs.push(self.create_paragraph(std::mem::take(&mut current_paragraph)));
             }
 
             current_paragraph.push(element.clone());
@@ -154,7 +154,7 @@ impl SyntheticStructureGenerator {
             if self.is_heading_paragraph(paragraph) {
                 // Start new section
                 if !current_section.is_empty() {
-                    sections.push(self.create_section(current_section.drain(..).collect()));
+                    sections.push(self.create_section(std::mem::take(&mut current_section)));
                 }
                 // Add heading as first element of new section
                 current_section.push(paragraph.clone());

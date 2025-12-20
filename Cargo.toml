@@ -1,15 +1,15 @@
 [package]
 name = "pdf_oxide"
-version = "0.2.6"
+version = "0.3.0"
 edition = "2021"
 authors = ["Yury Fedoseev <yfedoseev@gmail.com>"]
 license = "MIT OR Apache-2.0"
-description = "Production-grade PDF parsing: spec-compliant text extraction, intelligent reading order, OCR support. Ultra-fast Rust performance."
+description = "Production-grade PDF toolkit: spec-compliant extraction, creation, and editing. 47.9× faster text extraction than PyMuPDF4LLM."
 repository = "https://github.com/yfedoseev/pdf_oxide"
 homepage = "https://github.com/yfedoseev/pdf_oxide"
 documentation = "https://docs.rs/pdf_oxide"
 readme = "README.md"
-keywords = ["pdf", "text-extraction", "parser", "ocr", "rag"]
+keywords = ["pdf", "text-extraction", "pdf-creation", "pdf-editing", "parser"]
 categories = ["parsing", "text-processing"]
 
 [lib]
