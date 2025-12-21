@@ -135,6 +135,8 @@ pub mod text;
 pub mod images;
 
 // Document structure
+/// Core annotation types and enums per PDF spec
+pub mod annotation_types;
 pub mod annotations;
 /// Content elements for PDF generation
 pub mod elements;
@@ -181,6 +183,12 @@ mod python;
 pub mod wasm;
 
 // Re-exports
+pub use annotation_types::{
+    AnnotationBorderStyle, AnnotationColor, AnnotationFlags, AnnotationSubtype, BorderEffectStyle,
+    BorderStyleType, CaretSymbol, FileAttachmentIcon, FreeTextIntent, HighlightMode,
+    LineEndingStyle, QuadPoint, ReplyType, StampType, TextAlignment, TextAnnotationIcon,
+    TextMarkupType, WidgetFieldType,
+};
 pub use annotations::{Annotation, LinkAction, LinkDestination};
 pub use config::{DocumentType, ExtractionProfile};
 pub use document::{ExtractedImageRef, ImageFormat, PdfDocument};

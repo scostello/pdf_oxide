@@ -45,22 +45,31 @@
 //! ```
 
 mod annotation_builder;
+mod appearance_stream;
 mod content_stream;
 mod document_builder;
 mod font_manager;
+mod freetext;
 mod graphics_state;
 mod image_handler;
+mod ink;
 mod object_serializer;
 mod outline_builder;
 mod page_template;
 mod pattern;
 mod pdf_writer;
 mod shading;
+mod shape_annotations;
+mod special_annotations;
+mod stamp;
 mod table_renderer;
+mod text_annotations;
+mod text_markup;
 
 pub use annotation_builder::{
-    AnnotationBuilder, BorderStyle, HighlightMode, LinkAction, LinkAnnotation,
+    Annotation, AnnotationBuilder, BorderStyle, HighlightMode, LinkAction, LinkAnnotation,
 };
+pub use appearance_stream::AppearanceStreamBuilder;
 pub use content_stream::{
     BlendMode, ContentStreamBuilder, ContentStreamOp, LineCap, LineJoin, PendingImage,
     TextArrayItem,
@@ -71,8 +80,10 @@ pub use document_builder::{
 pub use font_manager::{
     EmbeddedFont, EmbeddedFontManager, FontFamily, FontInfo, FontManager, FontWeight, TextLayout,
 };
+pub use freetext::FreeTextAnnotation;
 pub use graphics_state::{ExtGStateBuilder, SoftMask, SoftMaskSubtype};
 pub use image_handler::{ColorSpace, ImageData, ImageFormat, ImageManager, ImagePlacement};
+pub use ink::InkAnnotation;
 pub use object_serializer::ObjectSerializer;
 pub use outline_builder::{
     FitMode, OutlineBuildResult, OutlineBuilder, OutlineDestination, OutlineItem, OutlineStyle,
@@ -90,10 +101,20 @@ pub use shading::{
     ColorSpace as ShadingColorSpace, GradientPresets, GradientStop, LinearGradientBuilder,
     RadialGradientBuilder,
 };
+pub use shape_annotations::{
+    CaptionPosition, LineAnnotation, PolygonAnnotation, PolygonType, ShapeAnnotation, ShapeType,
+};
+pub use special_annotations::{
+    CaretAnnotation, CaretSymbol, FileAttachmentAnnotation, FileAttachmentIcon, PopupAnnotation,
+    RedactAnnotation,
+};
+pub use stamp::{StampAnnotation, StampType};
 pub use table_renderer::{
     Borders, CellAlign, CellPadding, CellPosition, CellVAlign, ColumnWidth, FontMetrics,
     SimpleFontMetrics, Table, TableBorderStyle, TableCell, TableLayout, TableRow, TableStyle,
 };
+pub use text_annotations::TextAnnotation;
+pub use text_markup::TextMarkupAnnotation;
 
 use crate::elements::ContentElement;
 use crate::error::Result;
