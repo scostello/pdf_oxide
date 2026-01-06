@@ -82,9 +82,6 @@ js-sys = { version = "0.3", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 getrandom = { version = "0.2", features = ["js"], optional = true }
 
-# OCR (optional)
-tesseract-rs = { version = "0.1", optional = true }
-
 # Table detection - page rendering (optional)
 pdfium-render = { version = "0.8", optional = true }
 
