@@ -172,8 +172,8 @@ harness = false
 # Cargo auto-discovers binaries in src/bin/
 
 [package.metadata.docs.rs]
-# Document with all major features enabled for comprehensive API reference
-all-features = true
+# Document with safe features only (tesseract-rs fails on docs.rs sandbox)
+features = ["python", "logging", "debug-span-merging"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 # Python packaging (Maturin)
