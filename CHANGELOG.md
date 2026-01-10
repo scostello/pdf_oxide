@@ -2,6 +2,41 @@
 
 All notable changes to PDFOxide are documented here.
 
+## [0.2.6] - 2026-01-09
+
+### Added
+- **TagSuspect/MarkInfo support** (ISO 32000-1 Section 14.7.1)
+  - Parse MarkInfo dictionary from document catalog (`marked`, `suspects`, `user_properties`)
+  - `PdfDocument::mark_info()` method to retrieve MarkInfo
+  - Automatic fallback to geometric ordering when structure tree is marked as suspect
+- **Word Break /WB structure element** (Section 14.8.4.4)
+  - Support for explicit word boundaries in CJK text
+  - `StructType::WB` variant and `is_word_break()` helper
+  - Word break markers emitted during structure tree traversal
+- **Predefined CMap support for CJK fonts** (Section 9.7.5.2)
+  - Adobe-GB1 (Simplified Chinese) - ~500 common character mappings
+  - Adobe-Japan1 (Japanese) - Hiragana, Katakana, Kanji mappings
+  - Adobe-CNS1 (Traditional Chinese) - Bopomofo and CJK mappings
+  - Adobe-Korea1 (Korean) - Hangul and Hanja mappings
+  - Fallback identity mapping for common Unicode ranges
+- **Abbreviation expansion /E support** (Section 14.9.5)
+  - Parse `/E` entry from marked content properties
+  - `expansion` field on `StructElem` for structure-level abbreviations
+- **Object reference resolution utility**
+  - `PdfDocument::resolve_references()` for recursive reference handling in complex PDF structures
+- **Type 0 /W array parsing** for CIDFont glyph widths
+  - Proper spacing for CJK text using CIDFont width specifications
+- **ActualText verification tests** - comprehensive test coverage for PDF Spec Section 14.9.4
+
+### Fixed
+- **Soft hyphen handling** (U+00AD) - now correctly treated as valid continuation hyphen for word reconstruction
+
+### Changed
+- **Enhanced artifact filtering** with subtype support
+  - `ArtifactType::Pagination` with subtypes: Header, Footer, Watermark, PageNumber
+  - `ArtifactType::Layout` and `ArtifactType::Background` classification
+- `OrderedContent.mcid` changed to `Option<u32>` to support word break markers
+
 ## [0.2.5] - 2026-01-09
 
 ### Added
