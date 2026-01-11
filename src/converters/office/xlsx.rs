@@ -167,7 +167,7 @@ impl XlsxConverter {
         }
 
         // Render all operations
-        for (sheet_idx, ops) in all_ops.iter().enumerate() {
+        for ops in &all_ops {
             let mut page_builder = builder.page(self.config.page_size);
 
             for op in ops {
@@ -191,9 +191,6 @@ impl XlsxConverter {
             }
 
             page_builder.done();
-
-            // Suppress unused variable warning
-            let _ = sheet_idx;
         }
 
         builder.build()

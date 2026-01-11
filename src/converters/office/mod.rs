@@ -53,7 +53,7 @@ pub use pptx::PptxConverter;
 pub use xlsx::XlsxConverter;
 
 use crate::error::{Error, Result};
-use crate::writer::{DocumentBuilder, DocumentMetadata, PageSize};
+use crate::writer::PageSize;
 use std::path::Path;
 
 /// Page margins in points (1 inch = 72 points).
@@ -268,95 +268,6 @@ impl OfficeConverter {
     }
 }
 
-/// Helper to create a basic PDF from text content.
-#[allow(dead_code)]
-pub(crate) fn create_simple_pdf(
-    title: &str,
-    content: &[String],
-    config: &OfficeConfig,
-) -> Result<Vec<u8>> {
-    let metadata = DocumentMetadata::new().title(title).creator("pdf_oxide");
-
-    let mut builder = DocumentBuilder::new().metadata(metadata);
-
-    let (page_width, page_height) = config.page_size.dimensions();
-    let content_width = page_width - config.margins.left - config.margins.right;
-    let line_height = config.default_font_size * config.line_height;
-
-    // Process content into lines with page breaks
-    let mut all_lines: Vec<(String, bool)> = Vec::new(); // (line, is_new_page)
-    let mut current_y = page_height - config.margins.top;
-
-    for line in content {
-        if line.trim().is_empty() {
-            current_y -= line_height;
-            all_lines.push((String::new(), false));
-            continue;
-        }
-
-        // Simple word wrap
-        let words: Vec<&str> = line.split_whitespace().collect();
-        let mut current_line = String::new();
-        let avg_char_width = config.default_font_size * 0.5;
-
-        for word in words {
-            let word_with_space = if current_line.is_empty() {
-                word.to_string()
-            } else {
-                format!(" {}", word)
-            };
-
-            let new_width = (current_line.len() + word_with_space.len()) as f32 * avg_char_width;
-
-            if new_width > content_width && !current_line.is_empty() {
-                // Check for page break
-                let is_new_page = current_y < config.margins.bottom + line_height;
-                if is_new_page {
-                    current_y = page_height - config.margins.top;
-                }
-                all_lines.push((current_line, is_new_page));
-                current_y -= line_height;
-                current_line = word.to_string();
-            } else {
-                current_line.push_str(&word_with_space);
-            }
-        }
-
-        if !current_line.is_empty() {
-            let is_new_page = current_y < config.margins.bottom + line_height;
-            if is_new_page {
-                current_y = page_height - config.margins.top;
-            }
-            all_lines.push((current_line, is_new_page));
-            current_y -= line_height;
-        }
-    }
-
-    // Now render all lines
-    current_y = page_height - config.margins.top;
-    let mut page_builder = builder.page(config.page_size);
-    page_builder = page_builder
-        .at(config.margins.left, current_y)
-        .font(&config.default_font, config.default_font_size);
-
-    for (line, is_new_page) in &all_lines {
-        if *is_new_page {
-            page_builder.done();
-            current_y = page_height - config.margins.top;
-            page_builder = builder.page(config.page_size);
-            page_builder = page_builder.font(&config.default_font, config.default_font_size);
-        }
-
-        if !line.is_empty() {
-            page_builder = page_builder.at(config.margins.left, current_y).text(line);
-        }
-        current_y -= line_height;
-    }
-
-    page_builder.done();
-    builder.build()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,18 +299,5 @@ mod tests {
     fn test_converter_new() {
         let converter = OfficeConverter::new();
         assert_eq!(converter.config().default_font, "Helvetica");
-    }
-
-    #[test]
-    fn test_create_simple_pdf() {
-        let config = OfficeConfig::default();
-        let content = vec!["Hello, World!".to_string(), "This is a test.".to_string()];
-
-        let result = create_simple_pdf("Test", &content, &config);
-        assert!(result.is_ok());
-
-        let bytes = result.unwrap();
-        let pdf_str = String::from_utf8_lossy(&bytes);
-        assert!(pdf_str.starts_with("%PDF-"));
     }
 }

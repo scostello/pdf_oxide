@@ -325,16 +325,12 @@ impl DocxConverter {
 
         // Pre-process paragraphs into render instructions
         #[derive(Clone)]
-        #[allow(dead_code)]
         enum RenderOp {
             NewPage,
             Heading {
                 level: u8,
                 text: String,
                 y: f32,
-            },
-            Space {
-                height: f32,
             },
             Text {
                 x: f32,
@@ -382,9 +378,7 @@ impl DocxConverter {
                 });
                 current_y -= line_height;
             } else if para.runs.is_empty() {
-                ops.push(RenderOp::Space {
-                    height: base_line_height,
-                });
+                // Empty paragraph - just add spacing
                 current_y -= base_line_height;
             } else {
                 let mut x = self.config.margins.left;
@@ -448,9 +442,6 @@ impl DocxConverter {
                     page_builder = page_builder
                         .at(self.config.margins.left, *y)
                         .heading(*level, text);
-                },
-                RenderOp::Space { .. } => {
-                    // Spacing is handled by y-coordinate calculation
                 },
                 RenderOp::Text {
                     x,

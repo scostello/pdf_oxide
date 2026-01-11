@@ -15,7 +15,6 @@ use zip::ZipArchive;
 
 /// PPTX to PDF converter.
 pub struct PptxConverter {
-    #[allow(dead_code)]
     config: OfficeConfig,
 }
 
@@ -154,7 +153,6 @@ impl PptxConverter {
                                 } else {
                                     slide.text_boxes.push(TextBox {
                                         text: current_text.trim().to_string(),
-                                        is_title,
                                     });
                                 }
                                 current_text.clear();
@@ -251,16 +249,21 @@ impl PptxConverter {
 
         let mut builder = DocumentBuilder::new().metadata(metadata);
 
-        // Use landscape orientation for slides (like actual presentations)
-        let slide_size = PageSize::Custom(792.0, 612.0); // Landscape letter
+        // Use landscape orientation for slides (swap width/height from config)
+        let (config_width, config_height) = self.config.page_size.dimensions();
+        let slide_size =
+            PageSize::Custom(config_height.max(config_width), config_height.min(config_width));
         let (page_width, page_height) = slide_size.dimensions();
-        let margin = 36.0; // 0.5 inch margins for slides
+        let margin = self.config.margins.left.min(self.config.margins.top); // Use smaller margin for slides
+
+        // Font configuration from config
+        let title_size = self.config.default_font_size * 2.5; // Title is 2.5x body text
+        let text_size = self.config.default_font_size;
+        let slide_number_size = self.config.default_font_size * 0.9;
 
         // Pre-process into render operations
         #[derive(Clone)]
-        #[allow(dead_code)]
         enum RenderOp {
-            NewPage,
             SlideNumber {
                 num: usize,
                 total: usize,
@@ -275,7 +278,6 @@ impl PptxConverter {
                 text: String,
                 x: f32,
                 y: f32,
-                size: f32,
             },
         }
 
@@ -291,7 +293,7 @@ impl PptxConverter {
                 num: slide.number,
                 total: total_slides,
                 x: page_width - margin - 50.0,
-                y: margin,
+                y: self.config.margins.bottom,
             });
 
             // Slide title
@@ -300,12 +302,11 @@ impl PptxConverter {
                     text: title.clone(),
                     y: current_y,
                 });
-                current_y -= 48.0; // Title height + spacing
+                current_y -= title_size * 1.7; // Title height + spacing
             }
 
             // Text boxes
-            let text_size = 14.0;
-            let line_height = text_size * 1.5;
+            let line_height = text_size * self.config.line_height;
 
             for text_box in &slide.text_boxes {
                 if text_box.text.is_empty() {
@@ -329,7 +330,6 @@ impl PptxConverter {
                             text: line.to_string(),
                             x: margin,
                             y: current_y,
-                            size: text_size,
                         });
                         current_y -= line_height;
                     } else {
@@ -352,7 +352,6 @@ impl PptxConverter {
                                         text: current_line,
                                         x: margin,
                                         y: current_y,
-                                        size: text_size,
                                     });
                                     current_y -= line_height;
                                 }
@@ -365,7 +364,6 @@ impl PptxConverter {
                                 text: current_line,
                                 x: margin,
                                 y: current_y,
-                                size: text_size,
                             });
                             current_y -= line_height;
                         }
@@ -380,28 +378,31 @@ impl PptxConverter {
         }
 
         // Render all operations
+        let font_name = &self.config.default_font;
+        let bold_font = format!("{}-Bold", font_name);
+
         for ops in &all_ops {
             let mut page_builder = builder.page(slide_size);
 
             for op in ops {
                 match op {
-                    RenderOp::NewPage => {
-                        // Not used in current implementation
-                    },
                     RenderOp::SlideNumber { num, total, x, y } => {
                         page_builder = page_builder
                             .at(*x, *y)
-                            .font("Helvetica", 10.0)
+                            .font(font_name, slide_number_size)
                             .text(&format!("{}/{}", num, total));
                     },
                     RenderOp::Title { text, y } => {
                         page_builder = page_builder
                             .at(margin, *y)
-                            .font("Helvetica-Bold", 28.0)
+                            .font(&bold_font, title_size)
                             .text(text);
                     },
-                    RenderOp::Text { text, x, y, size } => {
-                        page_builder = page_builder.at(*x, *y).font("Helvetica", *size).text(text);
+                    RenderOp::Text { text, x, y } => {
+                        page_builder = page_builder
+                            .at(*x, *y)
+                            .font(font_name, text_size)
+                            .text(text);
                     },
                 }
             }
@@ -425,8 +426,6 @@ struct SlideContent {
 #[derive(Debug)]
 struct TextBox {
     text: String,
-    #[allow(dead_code)]
-    is_title: bool,
 }
 
 #[cfg(test)]
