@@ -1621,6 +1621,213 @@ impl PyPdf {
     }
 }
 
+// === Office Conversion API ===
+
+#[cfg(feature = "office")]
+use crate::converters::office::OfficeConverter as RustOfficeConverter;
+
+/// Python wrapper for Office to PDF conversion.
+///
+/// Converts Microsoft Office documents (DOCX, XLSX, PPTX) to PDF.
+/// Requires the `office` feature to be enabled.
+///
+/// # Example
+///
+/// ```python
+/// from pdf_oxide import OfficeConverter
+///
+/// # Convert a Word document to PDF
+/// pdf = OfficeConverter.from_docx("document.docx")
+/// pdf.save("document.pdf")
+///
+/// # Convert from bytes
+/// with open("spreadsheet.xlsx", "rb") as f:
+///     pdf = OfficeConverter.from_xlsx_bytes(f.read())
+///     pdf.save("spreadsheet.pdf")
+///
+/// # Auto-detect format and convert
+/// pdf = OfficeConverter.convert("presentation.pptx")
+/// pdf.save("presentation.pdf")
+/// ```
+#[cfg(feature = "office")]
+#[pyclass(name = "OfficeConverter")]
+pub struct PyOfficeConverter;
+
+#[cfg(feature = "office")]
+#[pymethods]
+impl PyOfficeConverter {
+    /// Convert a DOCX file to PDF.
+    ///
+    /// Args:
+    ///     path (str): Path to the DOCX file
+    ///
+    /// Returns:
+    ///     Pdf: Created PDF document
+    ///
+    /// Raises:
+    ///     IOError: If the file cannot be read
+    ///     RuntimeError: If conversion fails
+    ///
+    /// Example:
+    ///     >>> pdf = OfficeConverter.from_docx("document.docx")
+    ///     >>> pdf.save("document.pdf")
+    #[staticmethod]
+    fn from_docx(path: &str) -> PyResult<PyPdf> {
+        let converter = RustOfficeConverter::new();
+        let bytes = converter
+            .convert_docx(path)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to convert DOCX: {}", e)))?;
+        Ok(PyPdf { bytes })
+    }
+
+    /// Convert DOCX bytes to PDF.
+    ///
+    /// Args:
+    ///     data (bytes): DOCX file contents
+    ///
+    /// Returns:
+    ///     Pdf: Created PDF document
+    ///
+    /// Raises:
+    ///     RuntimeError: If conversion fails
+    ///
+    /// Example:
+    ///     >>> with open("document.docx", "rb") as f:
+    ///     ...     pdf = OfficeConverter.from_docx_bytes(f.read())
+    ///     >>> pdf.save("document.pdf")
+    #[staticmethod]
+    fn from_docx_bytes(data: &[u8]) -> PyResult<PyPdf> {
+        let converter = RustOfficeConverter::new();
+        let bytes = converter
+            .convert_docx_bytes(data)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to convert DOCX: {}", e)))?;
+        Ok(PyPdf { bytes })
+    }
+
+    /// Convert an XLSX file to PDF.
+    ///
+    /// Args:
+    ///     path (str): Path to the XLSX file
+    ///
+    /// Returns:
+    ///     Pdf: Created PDF document
+    ///
+    /// Raises:
+    ///     IOError: If the file cannot be read
+    ///     RuntimeError: If conversion fails
+    ///
+    /// Example:
+    ///     >>> pdf = OfficeConverter.from_xlsx("spreadsheet.xlsx")
+    ///     >>> pdf.save("spreadsheet.pdf")
+    #[staticmethod]
+    fn from_xlsx(path: &str) -> PyResult<PyPdf> {
+        let converter = RustOfficeConverter::new();
+        let bytes = converter
+            .convert_xlsx(path)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to convert XLSX: {}", e)))?;
+        Ok(PyPdf { bytes })
+    }
+
+    /// Convert XLSX bytes to PDF.
+    ///
+    /// Args:
+    ///     data (bytes): XLSX file contents
+    ///
+    /// Returns:
+    ///     Pdf: Created PDF document
+    ///
+    /// Raises:
+    ///     RuntimeError: If conversion fails
+    ///
+    /// Example:
+    ///     >>> with open("spreadsheet.xlsx", "rb") as f:
+    ///     ...     pdf = OfficeConverter.from_xlsx_bytes(f.read())
+    ///     >>> pdf.save("spreadsheet.pdf")
+    #[staticmethod]
+    fn from_xlsx_bytes(data: &[u8]) -> PyResult<PyPdf> {
+        let converter = RustOfficeConverter::new();
+        let bytes = converter
+            .convert_xlsx_bytes(data)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to convert XLSX: {}", e)))?;
+        Ok(PyPdf { bytes })
+    }
+
+    /// Convert a PPTX file to PDF.
+    ///
+    /// Args:
+    ///     path (str): Path to the PPTX file
+    ///
+    /// Returns:
+    ///     Pdf: Created PDF document
+    ///
+    /// Raises:
+    ///     IOError: If the file cannot be read
+    ///     RuntimeError: If conversion fails
+    ///
+    /// Example:
+    ///     >>> pdf = OfficeConverter.from_pptx("presentation.pptx")
+    ///     >>> pdf.save("presentation.pdf")
+    #[staticmethod]
+    fn from_pptx(path: &str) -> PyResult<PyPdf> {
+        let converter = RustOfficeConverter::new();
+        let bytes = converter
+            .convert_pptx(path)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to convert PPTX: {}", e)))?;
+        Ok(PyPdf { bytes })
+    }
+
+    /// Convert PPTX bytes to PDF.
+    ///
+    /// Args:
+    ///     data (bytes): PPTX file contents
+    ///
+    /// Returns:
+    ///     Pdf: Created PDF document
+    ///
+    /// Raises:
+    ///     RuntimeError: If conversion fails
+    ///
+    /// Example:
+    ///     >>> with open("presentation.pptx", "rb") as f:
+    ///     ...     pdf = OfficeConverter.from_pptx_bytes(f.read())
+    ///     >>> pdf.save("presentation.pdf")
+    #[staticmethod]
+    fn from_pptx_bytes(data: &[u8]) -> PyResult<PyPdf> {
+        let converter = RustOfficeConverter::new();
+        let bytes = converter
+            .convert_pptx_bytes(data)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to convert PPTX: {}", e)))?;
+        Ok(PyPdf { bytes })
+    }
+
+    /// Auto-detect format and convert to PDF.
+    ///
+    /// Detects the file format based on extension and converts to PDF.
+    /// Supports .docx, .xlsx, .xls, and .pptx files.
+    ///
+    /// Args:
+    ///     path (str): Path to the Office document
+    ///
+    /// Returns:
+    ///     Pdf: Created PDF document
+    ///
+    /// Raises:
+    ///     IOError: If the file cannot be read
+    ///     RuntimeError: If conversion fails or format is unsupported
+    ///
+    /// Example:
+    ///     >>> pdf = OfficeConverter.convert("document.docx")
+    ///     >>> pdf.save("document.pdf")
+    #[staticmethod]
+    fn convert(path: &str) -> PyResult<PyPdf> {
+        let converter = RustOfficeConverter::new();
+        let bytes = converter.convert(path).map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to convert Office document: {}", e))
+        })?;
+        Ok(PyPdf { bytes })
+    }
+}
+
 // === DOM Access API ===
 
 use crate::editor::{ElementId, PdfElement, PdfPage as RustPdfPage, PdfText as RustPdfText};
@@ -2906,6 +3113,10 @@ fn pdf_oxide(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyLineCap>()?;
     m.add_class::<PyLineJoin>()?;
     m.add_class::<PyPatternPresets>()?;
+
+    // Office conversion (optional, requires office feature)
+    #[cfg(feature = "office")]
+    m.add_class::<PyOfficeConverter>()?;
 
     m.add("VERSION", env!("CARGO_PKG_VERSION"))?;
     Ok(())

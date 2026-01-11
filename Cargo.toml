@@ -113,6 +113,10 @@ uuid = { version = "1.0", features = ["v4"] }
 qrcode = { version = "0.14", optional = true }
 barcoders = { version = "2.0", optional = true, features = ["image"] }
 
+# Office document conversion (optional)
+calamine = { version = "0.26", optional = true }
+zip = { version = "2.2", optional = true, default-features = false, features = ["deflate"] }
+
 [dev-dependencies]
 criterion = "0.5"
 proptest = "1.4"
@@ -149,6 +153,9 @@ signatures = ["dep:x509-parser", "dep:cms", "dep:rsa", "dep:der", "dep:spki", "d
 
 # Barcode/QR code generation
 barcodes = ["dep:qrcode", "dep:barcoders"]
+
+# Office document conversion (DOCX, XLSX, PPTX)
+office = ["dep:calamine", "dep:zip"]
 
 [profile.release]
 opt-level = 3
