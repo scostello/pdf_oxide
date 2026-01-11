@@ -1323,6 +1323,124 @@ impl PyPdfDocument {
         }
     }
 
+    // ========================================================================
+    // Text Search
+    // ========================================================================
+
+    /// Search for text in the document.
+    ///
+    /// Searches all pages for matches of the given pattern (regex supported).
+    ///
+    /// Args:
+    ///     pattern (str): Search pattern (regex or literal text)
+    ///     case_insensitive (bool): Case insensitive search (default: False)
+    ///     literal (bool): Treat pattern as literal text, not regex (default: False)
+    ///     whole_word (bool): Match whole words only (default: False)
+    ///     max_results (int): Maximum number of results, 0 = unlimited (default: 0)
+    ///
+    /// Returns:
+    ///     list[dict]: List of search results, each containing:
+    ///         - page (int): Page number (0-indexed)
+    ///         - text (str): Matched text
+    ///         - x (float): X position of match
+    ///         - y (float): Y position of match
+    ///         - width (float): Width of match bounding box
+    ///         - height (float): Height of match bounding box
+    ///
+    /// Example:
+    ///     >>> results = doc.search("hello")
+    ///     >>> for r in results:
+    ///     ...     print(f"Found '{r['text']}' on page {r['page']}")
+    ///
+    ///     >>> # Case insensitive regex search
+    ///     >>> results = doc.search(r"\\d+\\.\\d+", case_insensitive=True)
+    #[pyo3(signature = (pattern, case_insensitive=false, literal=false, whole_word=false, max_results=0))]
+    fn search(
+        &mut self,
+        py: Python<'_>,
+        pattern: &str,
+        case_insensitive: bool,
+        literal: bool,
+        whole_word: bool,
+        max_results: usize,
+    ) -> PyResult<Py<PyAny>> {
+        use crate::search::{SearchOptions, TextSearcher};
+
+        let options = SearchOptions::new()
+            .with_case_insensitive(case_insensitive)
+            .with_literal(literal)
+            .with_whole_word(whole_word)
+            .with_max_results(max_results);
+
+        let results = TextSearcher::search(&mut self.inner, pattern, &options)
+            .map_err(|e| PyRuntimeError::new_err(format!("Search failed: {}", e)))?;
+
+        let py_list = pyo3::types::PyList::empty(py);
+        for result in results {
+            let dict = pyo3::types::PyDict::new(py);
+            dict.set_item("page", result.page)?;
+            dict.set_item("text", &result.text)?;
+            dict.set_item("x", result.bbox.x)?;
+            dict.set_item("y", result.bbox.y)?;
+            dict.set_item("width", result.bbox.width)?;
+            dict.set_item("height", result.bbox.height)?;
+            py_list.append(dict)?;
+        }
+        Ok(py_list.into())
+    }
+
+    /// Search for text on a specific page.
+    ///
+    /// Args:
+    ///     page (int): Page index (0-based)
+    ///     pattern (str): Search pattern (regex or literal text)
+    ///     case_insensitive (bool): Case insensitive search (default: False)
+    ///     literal (bool): Treat pattern as literal text, not regex (default: False)
+    ///     whole_word (bool): Match whole words only (default: False)
+    ///     max_results (int): Maximum number of results, 0 = unlimited (default: 0)
+    ///
+    /// Returns:
+    ///     list[dict]: List of search results (same format as search())
+    ///
+    /// Example:
+    ///     >>> results = doc.search_page(0, "hello")
+    #[pyo3(signature = (page, pattern, case_insensitive=false, literal=false, whole_word=false, max_results=0))]
+    fn search_page(
+        &mut self,
+        py: Python<'_>,
+        page: usize,
+        pattern: &str,
+        case_insensitive: bool,
+        literal: bool,
+        whole_word: bool,
+        max_results: usize,
+    ) -> PyResult<Py<PyAny>> {
+        use crate::search::{SearchOptions, TextSearcher};
+
+        let options = SearchOptions::new()
+            .with_case_insensitive(case_insensitive)
+            .with_literal(literal)
+            .with_whole_word(whole_word)
+            .with_max_results(max_results)
+            .with_page_range(page, page);
+
+        let results = TextSearcher::search(&mut self.inner, pattern, &options)
+            .map_err(|e| PyRuntimeError::new_err(format!("Search failed: {}", e)))?;
+
+        let py_list = pyo3::types::PyList::empty(py);
+        for result in results {
+            let dict = pyo3::types::PyDict::new(py);
+            dict.set_item("page", result.page)?;
+            dict.set_item("text", &result.text)?;
+            dict.set_item("x", result.bbox.x)?;
+            dict.set_item("y", result.bbox.y)?;
+            dict.set_item("width", result.bbox.width)?;
+            dict.set_item("height", result.bbox.height)?;
+            py_list.append(dict)?;
+        }
+        Ok(py_list.into())
+    }
+
     /// String representation of the document.
     ///
     /// Returns:

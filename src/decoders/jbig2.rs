@@ -4,10 +4,22 @@
 //! (bi-level) images. JBIG2 provides significantly better compression than
 //! CCITT Fax for scanned documents and is optimized for text and halftones.
 //!
+//! ## Current Status
+//!
 //! This is a pass-through decoder for JBIG2 data. JBIG2 images are
 //! binary image compression formats typically used for scanned documents.
-//! For text extraction purposes, we keep the data in compressed format.
-//! Full image decompression will be handled in Phase 5 (image extraction).
+//! For text extraction purposes, the data is kept in compressed format.
+//!
+//! ## Implementation Options
+//!
+//! Full JBIG2 decoding requires one of:
+//! - **jbig2dec crate**: Rust bindings to C library (GPL-3.0 licensed)
+//! - **pdfium-render**: BSD-licensed, but heavy dependency
+//! - **Custom implementation**: Complex, no pure Rust MIT/Apache decoder exists
+//!
+//! For applications requiring actual JBIG2 image rendering:
+//! - Enable the `rendering` feature which uses tiny-skia for rasterization
+//! - Or use `pdfium-render` feature for full PDF rendering including JBIG2
 //!
 //! PDF Spec: ISO 32000-1:2008, Section 7.4.7 - JBIG2Decode Filter
 

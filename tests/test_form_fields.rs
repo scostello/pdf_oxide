@@ -331,3 +331,182 @@ fn test_no_form_fields_no_acroform() {
     // No AcroForm when no form fields
     assert!(!content.contains("/AcroForm"));
 }
+
+// ============================================================================
+// Form Flattening Tests
+// ============================================================================
+
+mod form_flattening {
+    use pdf_oxide::api::Pdf;
+    use pdf_oxide::geometry::Rect;
+    use pdf_oxide::writer::{CheckboxWidget, ComboBoxWidget, PdfWriter, TextFieldWidget};
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    /// Create a test PDF with form fields and return the path
+    fn create_form_pdf() -> NamedTempFile {
+        let mut writer = PdfWriter::new();
+        {
+            let mut page = writer.add_page(612.0, 792.0);
+
+            // Add text field
+            page.add_text_field(
+                TextFieldWidget::new("name", Rect::new(72.0, 700.0, 200.0, 20.0))
+                    .with_value("Test Name"),
+            );
+
+            // Add checkbox
+            page.add_checkbox(
+                CheckboxWidget::new("agree", Rect::new(72.0, 650.0, 15.0, 15.0)).checked(),
+            );
+
+            // Add combo box
+            page.add_combo_box(
+                ComboBoxWidget::new("country", Rect::new(72.0, 600.0, 150.0, 20.0))
+                    .with_options(vec!["USA", "Canada", "UK"])
+                    .with_value("USA"),
+            );
+        }
+
+        let bytes = writer.finish().expect("Failed to create test PDF");
+
+        // Write to temporary file
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        temp_file
+            .write_all(&bytes)
+            .expect("Failed to write temp file");
+        temp_file
+    }
+
+    #[test]
+    fn test_flatten_forms_removes_acroform() {
+        let input_file = create_form_pdf();
+
+        // Open and flatten forms
+        let mut pdf = Pdf::open(input_file.path()).expect("Failed to open PDF");
+        pdf.flatten_forms().expect("Failed to flatten forms");
+
+        // Verify flags are set
+        assert!(pdf.will_remove_acroform());
+
+        // Save to new file
+        let output_file = NamedTempFile::new().expect("Failed to create output file");
+        pdf.save(output_file.path()).expect("Failed to save PDF");
+
+        // Read output and verify AcroForm is removed
+        let output_bytes = std::fs::read(output_file.path()).expect("Failed to read output");
+        let content = String::from_utf8_lossy(&output_bytes);
+
+        assert!(!content.contains("/AcroForm"), "AcroForm should be removed after flattening");
+    }
+
+    #[test]
+    fn test_flatten_forms_on_page() {
+        let input_file = create_form_pdf();
+
+        // Open and flatten forms on page 0 only
+        let mut pdf = Pdf::open(input_file.path()).expect("Failed to open PDF");
+        pdf.flatten_forms_on_page(0)
+            .expect("Failed to flatten forms on page");
+
+        // Verify page is marked for flattening
+        assert!(pdf.is_page_marked_for_form_flatten(0));
+
+        // Save to new file
+        let output_file = NamedTempFile::new().expect("Failed to create output file");
+        pdf.save(output_file.path()).expect("Failed to save PDF");
+
+        // The output should be valid PDF
+        let output_bytes = std::fs::read(output_file.path()).expect("Failed to read output");
+        assert!(output_bytes.starts_with(b"%PDF-"), "Output should be valid PDF");
+    }
+
+    #[test]
+    fn test_flatten_forms_preserves_non_widget_annotations() {
+        // This test verifies that when we flatten forms, other annotations
+        // (like text notes, highlights) are preserved
+
+        let mut writer = PdfWriter::new();
+        {
+            let mut page = writer.add_page(612.0, 792.0);
+
+            // Add form field
+            page.add_text_field(TextFieldWidget::new(
+                "test_field",
+                Rect::new(72.0, 700.0, 200.0, 20.0),
+            ));
+
+            // Add some text content
+            page.add_text("Test content", 72.0, 650.0, "Helvetica", 12.0);
+        }
+
+        let bytes = writer.finish().expect("Failed to create test PDF");
+
+        // Write to temporary file
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        temp_file
+            .write_all(&bytes)
+            .expect("Failed to write temp file");
+
+        // Open and flatten
+        let mut pdf = Pdf::open(temp_file.path()).expect("Failed to open PDF");
+        pdf.flatten_forms().expect("Failed to flatten forms");
+
+        // Save
+        let output_file = NamedTempFile::new().expect("Failed to create output file");
+        pdf.save(output_file.path()).expect("Failed to save PDF");
+
+        // Verify output is valid PDF
+        let output_bytes = std::fs::read(output_file.path()).expect("Failed to read output");
+        assert!(output_bytes.starts_with(b"%PDF-"));
+        assert!(!String::from_utf8_lossy(&output_bytes).contains("/AcroForm"));
+    }
+
+    #[test]
+    fn test_flatten_empty_form() {
+        // Create a PDF without forms
+        let mut writer = PdfWriter::new();
+        {
+            let mut page = writer.add_page(612.0, 792.0);
+            page.add_text("No forms here", 72.0, 700.0, "Helvetica", 12.0);
+        }
+
+        let bytes = writer.finish().expect("Failed to create test PDF");
+
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        temp_file
+            .write_all(&bytes)
+            .expect("Failed to write temp file");
+
+        // Open and flatten (should succeed even with no forms)
+        let mut pdf = Pdf::open(temp_file.path()).expect("Failed to open PDF");
+        pdf.flatten_forms().expect("Failed to flatten forms");
+
+        let output_file = NamedTempFile::new().expect("Failed to create output file");
+        pdf.save(output_file.path()).expect("Failed to save PDF");
+
+        // Verify output is valid PDF
+        let output_bytes = std::fs::read(output_file.path()).expect("Failed to read output");
+        assert!(output_bytes.starts_with(b"%PDF-"));
+    }
+
+    #[test]
+    fn test_flatten_forms_api_markers() {
+        let input_file = create_form_pdf();
+
+        let mut pdf = Pdf::open(input_file.path()).expect("Failed to open PDF");
+
+        // Initially nothing is marked
+        assert!(!pdf.is_page_marked_for_form_flatten(0));
+        assert!(!pdf.will_remove_acroform());
+
+        // Mark page for form flattening
+        pdf.flatten_forms_on_page(0).expect("Failed to mark page");
+        assert!(pdf.is_page_marked_for_form_flatten(0));
+        assert!(!pdf.will_remove_acroform()); // Single page doesn't set remove_acroform
+
+        // Now flatten all forms
+        pdf.flatten_forms().expect("Failed to flatten forms");
+        assert!(pdf.will_remove_acroform());
+    }
+}

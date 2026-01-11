@@ -101,3 +101,31 @@ pub use crate::geometry::Rect;
 
 // Re-export element content types for adding new elements
 pub use crate::elements::{ImageContent, PathContent, TableContent, TextContent};
+
+// Re-export page labels types
+pub use crate::extractors::page_labels::{PageLabelExtractor, PageLabelRange, PageLabelStyle};
+pub use crate::writer::PageLabelsBuilder;
+
+// Re-export XMP metadata types
+pub use crate::extractors::xmp::{XmpExtractor, XmpMetadata};
+pub use crate::writer::{iso_timestamp, XmpWriter};
+
+// Re-export search types
+pub use crate::search::{SearchOptions, SearchResult, TextSearcher};
+
+// Re-export embedded files types
+pub use crate::writer::{AFRelationship, EmbeddedFile, EmbeddedFilesBuilder};
+
+// Re-export rendering types (optional feature)
+#[cfg(feature = "rendering")]
+pub use crate::rendering::{ImageFormat, PageRenderer, RenderOptions, RenderedImage};
+
+// Re-export debug visualization types (optional feature)
+#[cfg(feature = "rendering")]
+pub use crate::debug::{DebugOptions, DebugVisualizer, ElementColors};
+
+// Re-export PDF/A compliance types
+pub use crate::compliance::{
+    validate_pdf_a, ComplianceError, ComplianceWarning, ErrorCode, PdfALevel, PdfAPart,
+    PdfAValidator, ValidationResult, ValidationStats, WarningCode,
+};

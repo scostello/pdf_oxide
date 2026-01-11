@@ -55,14 +55,18 @@ impl HierarchicalExtractor {
             )));
         }
 
-        // Try to use structure tree if available
-        if let Some(_struct_tree) = document.structure_tree()? {
-            // For now, return None - structure tree conversion will be implemented
-            // in the converter module (Phase 1.3)
-            return Ok(None);
-        }
+        // For both tagged and untagged PDFs, use synthetic structure generation
+        // which extracts actual text content from the page.
+        //
+        // Note: Tagged PDFs have structure trees that could provide logical hierarchy,
+        // but for DOM text editing, we need actual text content which is obtained
+        // via extract_spans(). Future enhancement: merge structure tree info with
+        // extracted text for richer semantic structure.
+        //
+        // Check if structure tree exists (for logging/debugging purposes)
+        let _has_structure_tree = document.structure_tree()?.is_some();
 
-        // Fall back to synthetic structure for untagged PDFs
+        // Use synthetic structure which extracts actual text from the page
         Self::generate_synthetic_structure(document, page_index)
     }
 
@@ -83,22 +87,55 @@ impl HierarchicalExtractor {
     ///
     /// `Ok(Some(structure))` with synthetic hierarchy, or `Ok(None)` if page is empty
     pub fn generate_synthetic_structure(
-        _document: &mut PdfDocument,
-        _page_index: usize,
+        document: &mut PdfDocument,
+        page_index: usize,
     ) -> Result<Option<StructureElement>> {
-        // Extract flat content from the page
-        // let _text_elements = document.extract_spans(page_index)?;
-        // let _images = document.extract_images(page_index)?;
+        use crate::elements::{ContentElement, TextContent};
 
-        // For now, return a minimal Document structure
-        // Full implementation with geometric clustering will be added in Phase 1.4
-        // Default A4 page size in points: 595 x 842
-        let bbox = Rect::new(0.0, 0.0, 595.0, 842.0);
+        // Extract text spans from the page
+        // Handle pages without content gracefully (return empty structure)
+        let text_spans = match document.extract_spans(page_index) {
+            Ok(spans) => spans,
+            Err(crate::error::Error::ParseError { reason, .. })
+                if reason.contains("no Contents") =>
+            {
+                Vec::new()
+            },
+            Err(e) => return Err(e),
+        };
+
+        // Convert TextSpan to ContentElement::Text
+        let children: Vec<ContentElement> = text_spans
+            .into_iter()
+            .map(|span| ContentElement::Text(TextContent::from(span)))
+            .collect();
+
+        // Calculate bounding box from page dimensions or content
+        let bbox = if children.is_empty() {
+            // Default A4 page size in points: 595 x 842
+            Rect::new(0.0, 0.0, 595.0, 842.0)
+        } else {
+            // Calculate bbox from all text elements
+            let mut min_x = f32::MAX;
+            let mut min_y = f32::MAX;
+            let mut max_x = f32::MIN;
+            let mut max_y = f32::MIN;
+
+            for child in &children {
+                let child_bbox = child.bbox();
+                min_x = min_x.min(child_bbox.x);
+                min_y = min_y.min(child_bbox.y);
+                max_x = max_x.max(child_bbox.x + child_bbox.width);
+                max_y = max_y.max(child_bbox.y + child_bbox.height);
+            }
+
+            Rect::new(min_x, min_y, max_x - min_x, max_y - min_y)
+        };
 
         Ok(Some(StructureElement {
             structure_type: "Document".to_string(),
             bbox,
-            children: Vec::new(), // Will be populated with geometric clustering
+            children,
             reading_order: Some(0),
             alt_text: None,
             language: None,

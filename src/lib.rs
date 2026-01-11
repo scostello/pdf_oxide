@@ -157,6 +157,27 @@ pub mod writer;
 // PDF editing (v0.3.0)
 pub mod editor;
 
+// Text search (v0.3.0)
+pub mod search;
+
+// Page rendering to images (optional, v0.3.0)
+#[cfg(feature = "rendering")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rendering")))]
+pub mod rendering;
+
+// Debug visualization for PDF analysis (optional, v0.3.0)
+#[cfg(feature = "rendering")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rendering")))]
+pub mod debug;
+
+// Digital signatures (optional, v0.3.0)
+#[cfg(feature = "signatures")]
+#[cfg_attr(docsrs, doc(cfg(feature = "signatures")))]
+pub mod signatures;
+
+// PDF/A compliance validation (v0.3.0)
+pub mod compliance;
+
 // High-level API (v0.3.0)
 pub mod api;
 

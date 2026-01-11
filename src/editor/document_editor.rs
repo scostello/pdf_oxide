@@ -475,6 +475,12 @@ pub struct DocumentEditor {
     apply_redactions_pages: std::collections::HashSet<usize>,
     /// Image modifications per page: page_index -> (image_name -> modification)
     image_modifications: HashMap<usize, HashMap<String, ImageModification>>,
+    /// Pages where form fields should be flattened
+    flatten_forms_pages: std::collections::HashSet<usize>,
+    /// Flag to remove AcroForm from catalog after form flattening
+    remove_acroform: bool,
+    /// Embedded files to add to the document
+    embedded_files: Vec<crate::writer::EmbeddedFile>,
 }
 
 /// Tracks modified page properties.
@@ -569,6 +575,9 @@ impl DocumentEditor {
             flatten_annotations_pages: std::collections::HashSet::new(),
             apply_redactions_pages: std::collections::HashSet::new(),
             image_modifications: HashMap::new(),
+            flatten_forms_pages: std::collections::HashSet::new(),
+            remove_acroform: false,
+            embedded_files: Vec::new(),
         })
     }
 
@@ -1148,11 +1157,94 @@ impl DocumentEditor {
         };
 
         // Write catalog (possibly modified)
-        let catalog_obj = self
+        let mut catalog_obj = self
             .modified_objects
             .get(&catalog_ref.id)
             .cloned()
             .unwrap_or(catalog);
+
+        // Remove AcroForm from catalog if form flattening was requested
+        if self.remove_acroform {
+            if let Some(catalog_dict) = catalog_obj.as_dict() {
+                let mut new_catalog = catalog_dict.clone();
+                new_catalog.remove("AcroForm");
+                catalog_obj = Object::Dictionary(new_catalog);
+            }
+        }
+
+        // Write embedded files and update catalog if any files are pending
+        let mut embedded_file_refs: Vec<(String, ObjectRef)> = Vec::new();
+        let embedded_files = std::mem::take(&mut self.embedded_files);
+        if !embedded_files.is_empty() {
+            for file in &embedded_files {
+                // Allocate IDs for embedded file stream and filespec
+                let stream_id = self.allocate_object_id();
+                let filespec_id = self.allocate_object_id();
+
+                // Build and write embedded file stream
+                let stream_dict = file.build_stream_dict();
+                let stream_obj = Object::Stream {
+                    dict: stream_dict,
+                    data: file.data.clone().into(),
+                };
+                let offset = writer.stream_position()?;
+                let bytes =
+                    serialize_obj(&serializer, stream_id, 0, &stream_obj, &encryption_handler);
+                writer.write_all(&bytes)?;
+                xref_entries.push((stream_id, offset, 0, true));
+
+                // Build and write filespec dictionary
+                let stream_ref = ObjectRef {
+                    id: stream_id,
+                    gen: 0,
+                };
+                let filespec_dict = file.build_filespec(stream_ref);
+                let filespec_obj = Object::Dictionary(filespec_dict);
+                let offset = writer.stream_position()?;
+                let bytes =
+                    serialize_obj(&serializer, filespec_id, 0, &filespec_obj, &encryption_handler);
+                writer.write_all(&bytes)?;
+                xref_entries.push((filespec_id, offset, 0, true));
+
+                embedded_file_refs.push((
+                    file.name.clone(),
+                    ObjectRef {
+                        id: filespec_id,
+                        gen: 0,
+                    },
+                ));
+            }
+
+            // Update catalog with Names/EmbeddedFiles
+            if let Some(catalog_dict) = catalog_obj.as_dict() {
+                let mut new_catalog = catalog_dict.clone();
+
+                // Build EmbeddedFiles name tree
+                let mut names_array = Vec::new();
+                // Sort by name for proper name tree ordering
+                let mut sorted_refs = embedded_file_refs.clone();
+                sorted_refs.sort_by(|a, b| a.0.cmp(&b.0));
+                for (name, ref_) in sorted_refs {
+                    names_array.push(Object::String(name.as_bytes().to_vec()));
+                    names_array.push(Object::Reference(ref_));
+                }
+
+                let mut embedded_files_dict = HashMap::new();
+                embedded_files_dict.insert("Names".to_string(), Object::Array(names_array));
+
+                // Get or create Names dictionary
+                let mut names_dict = match new_catalog.get("Names") {
+                    Some(Object::Dictionary(d)) => d.clone(),
+                    _ => HashMap::new(),
+                };
+                names_dict
+                    .insert("EmbeddedFiles".to_string(), Object::Dictionary(embedded_files_dict));
+                new_catalog.insert("Names".to_string(), Object::Dictionary(names_dict));
+
+                catalog_obj = Object::Dictionary(new_catalog);
+            }
+        }
+
         let offset = writer.stream_position()?;
         let bytes =
             serialize_obj(&serializer, catalog_ref.id, 0, &catalog_obj, &encryption_handler);
@@ -1232,6 +1324,34 @@ impl DocumentEditor {
                                     } else {
                                         None
                                     };
+
+                                // Check if we need to flatten form fields for this page
+                                let should_flatten_forms =
+                                    self.flatten_forms_pages.contains(&page_index);
+                                let form_flatten_data: Option<(
+                                    Vec<AnnotationAppearance>,
+                                    u32,
+                                    Vec<(u32, String)>,
+                                )> = if should_flatten_forms {
+                                    let appearances = self.get_widget_appearances(page_index)?;
+                                    if !appearances.is_empty() {
+                                        let overlay_id = self.allocate_object_id();
+                                        let xobj_ids: Vec<(u32, String)> = appearances
+                                            .iter()
+                                            .enumerate()
+                                            .map(|(i, _)| {
+                                                let id = self.allocate_object_id();
+                                                let name = format!("FlatForm{}", i);
+                                                (id, name)
+                                            })
+                                            .collect();
+                                        Some((appearances, overlay_id, xobj_ids))
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                };
 
                                 // Apply page property modifications if any
                                 let mut final_page_obj = if let Some(props) =
@@ -1373,6 +1493,125 @@ impl DocumentEditor {
                                     // For now, we remove the entire /Annots array when applying redactions
                                     // A more sophisticated implementation would only remove Redact subtypes
                                     new_dict.remove("Annots");
+
+                                    final_page_obj = Object::Dictionary(new_dict);
+                                }
+
+                                // If we're flattening form fields, update page dictionary
+                                if let (
+                                    Some((
+                                        ref form_appearances,
+                                        form_overlay_id,
+                                        ref form_xobj_ids,
+                                    )),
+                                    Some(page_dict),
+                                ) = (&form_flatten_data, final_page_obj.as_dict())
+                                {
+                                    let mut new_dict = page_dict.clone();
+
+                                    // Add form flatten overlay to Contents
+                                    if let Some(contents) = new_dict.get("Contents").cloned() {
+                                        let overlay_ref =
+                                            Object::Reference(ObjectRef::new(*form_overlay_id, 0));
+                                        let contents_array = match contents {
+                                            Object::Reference(_) => {
+                                                Object::Array(vec![contents, overlay_ref])
+                                            },
+                                            Object::Array(mut arr) => {
+                                                arr.push(overlay_ref);
+                                                Object::Array(arr)
+                                            },
+                                            _ => Object::Array(vec![contents, overlay_ref]),
+                                        };
+                                        new_dict.insert("Contents".to_string(), contents_array);
+                                    }
+
+                                    // Add XObjects to Resources
+                                    let resources = new_dict.get("Resources").cloned();
+                                    let mut resources_dict = match resources {
+                                        Some(Object::Dictionary(d)) => d,
+                                        Some(Object::Reference(res_ref)) => {
+                                            match self.source.load_object(res_ref) {
+                                                Ok(Object::Dictionary(d)) => d,
+                                                _ => HashMap::new(),
+                                            }
+                                        },
+                                        _ => HashMap::new(),
+                                    };
+
+                                    // Get or create XObject subdictionary
+                                    let mut xobject_dict = match resources_dict.get("XObject") {
+                                        Some(Object::Dictionary(d)) => d.clone(),
+                                        Some(Object::Reference(xobj_ref)) => {
+                                            match self.source.load_object(*xobj_ref) {
+                                                Ok(Object::Dictionary(d)) => d,
+                                                _ => HashMap::new(),
+                                            }
+                                        },
+                                        _ => HashMap::new(),
+                                    };
+
+                                    // Add flattened form XObjects
+                                    for (obj_id, name) in form_xobj_ids {
+                                        xobject_dict.insert(
+                                            name.clone(),
+                                            Object::Reference(ObjectRef::new(*obj_id, 0)),
+                                        );
+                                    }
+
+                                    resources_dict.insert(
+                                        "XObject".to_string(),
+                                        Object::Dictionary(xobject_dict),
+                                    );
+                                    new_dict.insert(
+                                        "Resources".to_string(),
+                                        Object::Dictionary(resources_dict),
+                                    );
+
+                                    // Remove Widget annotations from /Annots array, preserving others
+                                    if let Some(annots) = new_dict.get("Annots").cloned() {
+                                        let annots_array = match annots {
+                                            Object::Array(arr) => arr,
+                                            Object::Reference(annots_ref) => {
+                                                match self.source.load_object(annots_ref) {
+                                                    Ok(Object::Array(arr)) => arr,
+                                                    _ => vec![],
+                                                }
+                                            },
+                                            _ => vec![],
+                                        };
+
+                                        // Filter out Widget annotations
+                                        let mut filtered_annots = Vec::new();
+                                        for annot_ref in annots_array {
+                                            if let Some(ref_obj) = annot_ref.as_reference() {
+                                                if let Ok(annot_obj) =
+                                                    self.source.load_object(ref_obj)
+                                                {
+                                                    if let Some(annot_dict) = annot_obj.as_dict() {
+                                                        let subtype = annot_dict
+                                                            .get("Subtype")
+                                                            .and_then(|s| s.as_name());
+                                                        if subtype != Some("Widget") {
+                                                            // Keep non-Widget annotations
+                                                            filtered_annots.push(annot_ref);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        if filtered_annots.is_empty() {
+                                            // All annotations were widgets, remove Annots entirely
+                                            new_dict.remove("Annots");
+                                        } else {
+                                            // Keep remaining annotations
+                                            new_dict.insert(
+                                                "Annots".to_string(),
+                                                Object::Array(filtered_annots),
+                                            );
+                                        }
+                                    }
 
                                     final_page_obj = Object::Dictionary(new_dict);
                                 }
@@ -1770,6 +2009,102 @@ impl DocumentEditor {
                                     );
                                     writer.write_all(&bytes)?;
                                     xref_entries.push((redact_overlay_id, offset, 0, true));
+                                }
+
+                                // Write form flatten XObjects and overlay if present
+                                if let Some((
+                                    ref form_appearances,
+                                    form_overlay_id,
+                                    ref form_xobj_ids,
+                                )) = form_flatten_data
+                                {
+                                    // Write each form appearance as an XObject
+                                    for ((obj_id, _), appearance) in
+                                        form_xobj_ids.iter().zip(form_appearances.iter())
+                                    {
+                                        let mut form_dict: HashMap<String, Object> = HashMap::new();
+                                        form_dict.insert(
+                                            "Type".to_string(),
+                                            Object::Name("XObject".to_string()),
+                                        );
+                                        form_dict.insert(
+                                            "Subtype".to_string(),
+                                            Object::Name("Form".to_string()),
+                                        );
+                                        form_dict
+                                            .insert("FormType".to_string(), Object::Integer(1));
+                                        form_dict.insert(
+                                            "BBox".to_string(),
+                                            Object::Array(vec![
+                                                Object::Real(appearance.bbox[0] as f64),
+                                                Object::Real(appearance.bbox[1] as f64),
+                                                Object::Real(appearance.bbox[2] as f64),
+                                                Object::Real(appearance.bbox[3] as f64),
+                                            ]),
+                                        );
+
+                                        // Add matrix if present
+                                        if let Some(m) = appearance.matrix {
+                                            form_dict.insert(
+                                                "Matrix".to_string(),
+                                                Object::Array(vec![
+                                                    Object::Real(m[0] as f64),
+                                                    Object::Real(m[1] as f64),
+                                                    Object::Real(m[2] as f64),
+                                                    Object::Real(m[3] as f64),
+                                                    Object::Real(m[4] as f64),
+                                                    Object::Real(m[5] as f64),
+                                                ]),
+                                            );
+                                        }
+
+                                        // Add resources if present
+                                        if let Some(ref resources) = appearance.resources {
+                                            form_dict
+                                                .insert("Resources".to_string(), resources.clone());
+                                        }
+
+                                        // Create stream object
+                                        let form_stream = Object::Stream {
+                                            dict: form_dict,
+                                            data: appearance.content.clone().into(),
+                                        };
+
+                                        let offset = writer.stream_position()?;
+                                        let bytes = serialize_obj(
+                                            &serializer,
+                                            *obj_id,
+                                            0,
+                                            &form_stream,
+                                            &encryption_handler,
+                                        );
+                                        writer.write_all(&bytes)?;
+                                        xref_entries.push((*obj_id, offset, 0, true));
+                                    }
+
+                                    // Write the overlay content stream that invokes the XObjects
+                                    let xobj_names: Vec<String> = form_xobj_ids
+                                        .iter()
+                                        .map(|(_, name)| name.clone())
+                                        .collect();
+                                    let overlay_content = self
+                                        .generate_flatten_overlay(form_appearances, &xobj_names);
+
+                                    let overlay_stream = Object::Stream {
+                                        dict: HashMap::new(),
+                                        data: overlay_content.into(),
+                                    };
+
+                                    let offset = writer.stream_position()?;
+                                    let bytes = serialize_obj(
+                                        &serializer,
+                                        form_overlay_id,
+                                        0,
+                                        &overlay_stream,
+                                        &encryption_handler,
+                                    );
+                                    writer.write_all(&bytes)?;
+                                    xref_entries.push((form_overlay_id, offset, 0, true));
                                 }
 
                                 page_index += 1;
@@ -2441,6 +2776,377 @@ impl DocumentEditor {
     /// Clear the flatten annotation flag for a page.
     pub fn unmark_page_for_flatten(&mut self, page: usize) {
         self.flatten_annotations_pages.remove(&page);
+    }
+
+    // ========================================================================
+    // Form Flattening
+    // ========================================================================
+
+    /// Mark form fields on a specific page for flattening.
+    ///
+    /// When the document is saved, form fields (Widget annotations) on this page
+    /// will be rendered into the page content. Only Widget annotations are flattened,
+    /// other annotation types are preserved.
+    ///
+    /// # Arguments
+    /// * `page` - The zero-based page index
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Flatten forms on page 0
+    /// editor.flatten_forms_on_page(0)?;
+    /// editor.save("flattened.pdf")?;
+    /// ```
+    pub fn flatten_forms_on_page(&mut self, page: usize) -> Result<()> {
+        if page >= self.current_page_count() {
+            return Err(Error::InvalidPdf(format!("Page index {} out of range", page)));
+        }
+
+        self.flatten_forms_pages.insert(page);
+        self.is_modified = true;
+        Ok(())
+    }
+
+    /// Mark all pages for form field flattening.
+    ///
+    /// When the document is saved, all form fields will be rendered into the page
+    /// content and the AcroForm dictionary will be removed from the catalog.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// editor.flatten_forms()?;
+    /// editor.save("flattened.pdf")?;
+    /// ```
+    pub fn flatten_forms(&mut self) -> Result<()> {
+        let page_count = self.current_page_count();
+        for page in 0..page_count {
+            self.flatten_forms_pages.insert(page);
+        }
+        self.remove_acroform = true;
+        self.is_modified = true;
+        Ok(())
+    }
+
+    /// Check if a page has form fields marked for flattening.
+    pub fn is_page_marked_for_form_flatten(&self, page: usize) -> bool {
+        self.flatten_forms_pages.contains(&page)
+    }
+
+    /// Check if AcroForm will be removed on save.
+    pub fn will_remove_acroform(&self) -> bool {
+        self.remove_acroform
+    }
+
+    // =========================================================================
+    // File Attachments (Embedded Files)
+    // =========================================================================
+
+    /// Embed a file in the document.
+    ///
+    /// The file will be added to the document's EmbeddedFiles name tree
+    /// when the document is saved.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The file name (used as identifier and display name)
+    /// * `data` - The file contents
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use pdf_oxide::editor::DocumentEditor;
+    ///
+    /// let mut editor = DocumentEditor::open("input.pdf")?;
+    /// editor.embed_file("data.csv", csv_bytes)?;
+    /// editor.save("output.pdf")?;
+    /// ```
+    pub fn embed_file(&mut self, name: &str, data: Vec<u8>) -> Result<()> {
+        let file = crate::writer::EmbeddedFile::new(name, data);
+        self.embedded_files.push(file);
+        self.is_modified = true;
+        Ok(())
+    }
+
+    /// Embed a file with additional metadata.
+    ///
+    /// # Arguments
+    ///
+    /// * `file` - The embedded file configuration
+    pub fn embed_file_with_options(&mut self, file: crate::writer::EmbeddedFile) -> Result<()> {
+        self.embedded_files.push(file);
+        self.is_modified = true;
+        Ok(())
+    }
+
+    /// Get the list of files that will be embedded on save.
+    pub fn pending_embedded_files(&self) -> &[crate::writer::EmbeddedFile] {
+        &self.embedded_files
+    }
+
+    /// Clear all pending embedded files.
+    pub fn clear_embedded_files(&mut self) {
+        self.embedded_files.clear();
+    }
+
+    /// Get widget annotation appearances for form flattening.
+    ///
+    /// Returns appearance data for Widget annotations only.
+    /// Generates appearance streams for widgets that don't have them.
+    fn get_widget_appearances(&mut self, page: usize) -> Result<Vec<AnnotationAppearance>> {
+        use crate::annotation_types::AnnotationSubtype;
+
+        let annotations = self.source.get_annotations(page)?;
+        let mut appearances = Vec::new();
+
+        for annotation in annotations {
+            // Only process Widget annotations (form fields)
+            if annotation.subtype_enum != AnnotationSubtype::Widget {
+                continue;
+            }
+
+            // Skip annotations without a raw dictionary
+            let raw_dict = match &annotation.raw_dict {
+                Some(dict) => dict,
+                None => continue,
+            };
+
+            // Try to get appearance from AP dictionary
+            let appearance_result = self.extract_widget_appearance(&annotation, raw_dict);
+
+            match appearance_result {
+                Ok(Some(appearance)) => appearances.push(appearance),
+                Ok(None) => {
+                    // No appearance stream - try to generate one
+                    if let Some(generated) = self.generate_widget_appearance(&annotation)? {
+                        appearances.push(generated);
+                    }
+                },
+                Err(_) => continue,
+            }
+        }
+
+        Ok(appearances)
+    }
+
+    /// Extract appearance stream from a widget annotation.
+    fn extract_widget_appearance(
+        &mut self,
+        annotation: &crate::annotations::Annotation,
+        raw_dict: &HashMap<String, Object>,
+    ) -> Result<Option<AnnotationAppearance>> {
+        // Get the /AP (appearance) dictionary
+        let ap_dict = match raw_dict.get("AP") {
+            Some(Object::Dictionary(d)) => d.clone(),
+            Some(Object::Reference(ap_ref)) => match self.source.load_object(*ap_ref)? {
+                Object::Dictionary(d) => d,
+                _ => return Ok(None),
+            },
+            _ => return Ok(None),
+        };
+
+        // Get the /N (normal appearance) entry
+        let normal_appearance = match ap_dict.get("N") {
+            Some(obj) => obj.clone(),
+            None => return Ok(None),
+        };
+
+        // Handle appearance states (e.g., /Yes and /Off for checkboxes)
+        let (appearance_obj, appearance_ref) = match normal_appearance {
+            Object::Reference(ref_obj) => {
+                let obj = self.source.load_object(ref_obj)?;
+                (obj, Some(ref_obj))
+            },
+            Object::Dictionary(ref dict) => {
+                // Check if this is a Form XObject or a state dictionary
+                if dict.get("Type").and_then(|t| t.as_name()) == Some("XObject") {
+                    (Object::Dictionary(dict.clone()), None)
+                } else {
+                    // This is a state dictionary - get the current appearance state
+                    let state = annotation.appearance_state.as_deref().unwrap_or("Off");
+                    match dict.get(state) {
+                        Some(Object::Reference(ref_obj)) => {
+                            let obj = self.source.load_object(*ref_obj)?;
+                            (obj, Some(*ref_obj))
+                        },
+                        Some(obj) => (obj.clone(), None),
+                        None => {
+                            // Try "Yes" as fallback for checkboxes
+                            if state == "Off" {
+                                return Ok(None); // Off state - skip
+                            }
+                            match dict.get("Yes") {
+                                Some(Object::Reference(ref_obj)) => {
+                                    let obj = self.source.load_object(*ref_obj)?;
+                                    (obj, Some(*ref_obj))
+                                },
+                                Some(obj) => (obj.clone(), None),
+                                None => return Ok(None),
+                            }
+                        },
+                    }
+                }
+            },
+            _ => return Ok(None),
+        };
+
+        // Extract Form XObject properties
+        let form_dict = match appearance_obj.as_dict() {
+            Some(d) => d,
+            None => return Ok(None),
+        };
+
+        // Get BBox
+        let bbox = match form_dict.get("BBox") {
+            Some(Object::Array(arr)) if arr.len() >= 4 => {
+                let values: Vec<f64> = arr
+                    .iter()
+                    .filter_map(|o| o.as_real().or_else(|| o.as_integer().map(|i| i as f64)))
+                    .collect();
+                if values.len() >= 4 {
+                    [
+                        values[0] as f32,
+                        values[1] as f32,
+                        values[2] as f32,
+                        values[3] as f32,
+                    ]
+                } else {
+                    return Ok(None);
+                }
+            },
+            _ => return Ok(None),
+        };
+
+        // Get Matrix (optional)
+        let matrix = match form_dict.get("Matrix") {
+            Some(Object::Array(arr)) if arr.len() >= 6 => {
+                let values: Vec<f64> = arr
+                    .iter()
+                    .filter_map(|o| o.as_real().or_else(|| o.as_integer().map(|i| i as f64)))
+                    .collect();
+                if values.len() >= 6 {
+                    Some([
+                        values[0] as f32,
+                        values[1] as f32,
+                        values[2] as f32,
+                        values[3] as f32,
+                        values[4] as f32,
+                        values[5] as f32,
+                    ])
+                } else {
+                    None
+                }
+            },
+            _ => None,
+        };
+
+        // Get Resources
+        let resources = form_dict.get("Resources").cloned();
+
+        // Get the annotation's Rect
+        let annot_rect = annotation.rect.unwrap_or([0.0, 0.0, 0.0, 0.0]);
+        let annot_rect = [
+            annot_rect[0] as f32,
+            annot_rect[1] as f32,
+            annot_rect[2] as f32,
+            annot_rect[3] as f32,
+        ];
+
+        // Get content stream bytes
+        let content_bytes = if let Some(ref_obj) = appearance_ref {
+            let stream_obj = self.source.load_object(ref_obj)?;
+            match stream_obj.decode_stream_data() {
+                Ok(data) => data,
+                Err(_) => return Ok(None),
+            }
+        } else {
+            match appearance_obj.decode_stream_data() {
+                Ok(data) => data,
+                Err(_) => return Ok(None),
+            }
+        };
+
+        Ok(Some(AnnotationAppearance {
+            content: content_bytes.to_vec(),
+            bbox,
+            annot_rect,
+            matrix,
+            resources,
+        }))
+    }
+
+    /// Generate appearance stream for a widget without one.
+    fn generate_widget_appearance(
+        &self,
+        annotation: &crate::annotations::Annotation,
+    ) -> Result<Option<AnnotationAppearance>> {
+        use crate::annotation_types::WidgetFieldType;
+        use crate::geometry::Rect;
+        use crate::writer::FormAppearanceGenerator;
+
+        let rect = match annotation.rect {
+            Some(r) => r,
+            None => return Ok(None),
+        };
+
+        let annot_rect = [
+            rect[0] as f32,
+            rect[1] as f32,
+            rect[2] as f32,
+            rect[3] as f32,
+        ];
+        let width = annot_rect[2] - annot_rect[0];
+        let height = annot_rect[3] - annot_rect[1];
+        let geom_rect = Rect::new(0.0, 0.0, width, height);
+
+        let generator = FormAppearanceGenerator::new()
+            .with_background(1.0, 1.0, 1.0)
+            .with_border(1.0, 0.0, 0.0, 0.0);
+
+        let field_type = annotation.field_type.as_ref();
+        let content_str = match field_type {
+            Some(WidgetFieldType::Text) => {
+                let text = annotation.field_value.as_deref().unwrap_or("");
+                generator.text_field_appearance(geom_rect, text, "/Helv", 10.0, (0.0, 0.0, 0.0))
+            },
+            Some(WidgetFieldType::Checkbox { checked }) => {
+                if *checked {
+                    generator.checkbox_on_appearance(geom_rect, (0.0, 0.0, 0.0))
+                } else {
+                    generator.checkbox_off_appearance(geom_rect)
+                }
+            },
+            Some(WidgetFieldType::Radio { selected }) => {
+                if selected.is_some() {
+                    generator.radio_on_appearance(geom_rect, (0.0, 0.0, 0.0))
+                } else {
+                    generator.radio_off_appearance(geom_rect)
+                }
+            },
+            Some(WidgetFieldType::Button) => {
+                let caption = annotation.field_value.as_deref().unwrap_or("");
+                generator.button_appearance(geom_rect, caption, "/Helv", 10.0, (0.0, 0.0, 0.0))
+            },
+            Some(WidgetFieldType::Choice { selected, .. }) => {
+                let text = selected.as_deref().unwrap_or("");
+                generator.text_field_appearance(geom_rect, text, "/Helv", 10.0, (0.0, 0.0, 0.0))
+            },
+            Some(WidgetFieldType::Signature) | Some(WidgetFieldType::Unknown) | None => {
+                return Ok(None);
+            },
+        };
+
+        let content_bytes = content_str.into_bytes();
+        let bbox = [0.0, 0.0, width, height];
+
+        Ok(Some(AnnotationAppearance {
+            content: content_bytes,
+            bbox,
+            annot_rect,
+            matrix: None,
+            resources: None,
+        }))
     }
 
     /// Get annotation appearance stream data for flattening.

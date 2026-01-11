@@ -8,10 +8,12 @@ pub mod gap_statistics;
 pub mod geometric_spacing;
 pub mod hierarchical;
 pub mod images;
+pub mod page_labels;
 pub mod pattern_detector;
 pub mod structured;
 pub mod synthetic_structure;
 pub mod text;
+pub mod xmp;
 
 #[cfg(feature = "debug-span-merging")]
 pub mod debug_span_merging;
@@ -24,6 +26,7 @@ pub use gap_statistics::{
 pub use geometric_spacing::{should_insert_space, SpaceInsertion, SpacingConfig};
 pub use hierarchical::HierarchicalExtractor;
 pub use images::{extract_image_from_xobject, ColorSpace, ImageData, PdfImage, PixelFormat};
+pub use page_labels::{PageLabelExtractor, PageLabelRange, PageLabelStyle};
 pub use pattern_detector::{PatternDetector, PatternPreservationConfig};
 pub use structured::{
     BoundingBox, DocumentElement, DocumentMetadata, ExtractorConfig, ListItem, StructuredDocument,
@@ -31,3 +34,4 @@ pub use structured::{
 };
 pub use synthetic_structure::{SyntheticStructureConfig, SyntheticStructureGenerator};
 pub use text::{SpanMergingConfig, TextExtractionConfig, TextExtractor};
+pub use xmp::{XmpExtractor, XmpMetadata};

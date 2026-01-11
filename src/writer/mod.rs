@@ -49,6 +49,7 @@ mod annotation_builder;
 mod appearance_stream;
 mod content_stream;
 mod document_builder;
+mod embedded_files;
 mod font_manager;
 pub mod form_fields;
 mod freetext;
@@ -57,6 +58,7 @@ mod image_handler;
 mod ink;
 mod object_serializer;
 mod outline_builder;
+mod page_labels;
 mod page_template;
 mod pattern;
 mod pdf_writer;
@@ -68,6 +70,7 @@ mod table_renderer;
 mod text_annotations;
 mod text_markup;
 mod watermark;
+mod xmp_metadata;
 
 pub use acroform::AcroFormBuilder;
 pub use annotation_builder::{
@@ -81,6 +84,7 @@ pub use content_stream::{
 pub use document_builder::{
     DocumentBuilder, DocumentMetadata, FluentPageBuilder, PageSize, TextAlign, TextConfig,
 };
+pub use embedded_files::{AFRelationship, EmbeddedFile, EmbeddedFilesBuilder};
 pub use font_manager::{
     EmbeddedFont, EmbeddedFontManager, FontFamily, FontInfo, FontManager, FontWeight, TextLayout,
 };
@@ -98,6 +102,7 @@ pub use object_serializer::ObjectSerializer;
 pub use outline_builder::{
     FitMode, OutlineBuildResult, OutlineBuilder, OutlineDestination, OutlineItem, OutlineStyle,
 };
+pub use page_labels::PageLabelsBuilder;
 pub use page_template::{
     HFAlignment, HFElement, HFStyle, HeaderFooter, PageNumberFormat, PageTemplate, Placeholder,
     PlaceholderContext,
@@ -126,6 +131,7 @@ pub use table_renderer::{
 pub use text_annotations::TextAnnotation;
 pub use text_markup::TextMarkupAnnotation;
 pub use watermark::{FixedPrintSettings, WatermarkAnnotation};
+pub use xmp_metadata::{iso_timestamp, XmpWriter};
 
 use crate::elements::ContentElement;
 use crate::error::Result;

@@ -56,6 +56,17 @@ cbc = "0.1"          # CBC mode for AES
 md-5 = "0.10"        # MD5 for key derivation
 sha2 = "0.10"        # SHA-256 for newer encryption
 
+# Digital signatures (optional)
+x509-parser = { version = "0.16", optional = true }  # X.509 certificate parsing
+cms = { version = "0.2", optional = true }            # CMS/PKCS#7 signatures
+rsa = { version = "0.9", optional = true }            # RSA signing
+der = { version = "0.7", optional = true }            # DER encoding
+spki = { version = "0.7", optional = true }           # SubjectPublicKeyInfo
+pkcs1 = { version = "0.7", optional = true }          # PKCS#1 RSA format
+pkcs8 = { version = "0.10", optional = true }         # PKCS#8 private keys
+signature = { version = "2.2", optional = true }      # Signature traits
+sha1 = { version = "0.10", optional = true }          # SHA-1 for legacy signatures
+
 # Math and algorithms
 ndarray = { version = "0.16", optional = true, features = ["std"] }
 linfa = { version = "0.7", optional = true }
@@ -73,6 +84,9 @@ imageproc = { version = "0.25", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
+# XML parsing (for XMP metadata)
+quick-xml = "0.31"
+
 # Python bindings (optional)
 # Using latest version to support Python 3.14+
 pyo3 = { version = "0.27", features = ["extension-module"], optional = true }
@@ -86,6 +100,11 @@ getrandom = { version = "0.2", features = ["js"], optional = true }
 
 # Table detection - page rendering (optional)
 pdfium-render = { version = "0.8", optional = true }
+
+# Rendering (optional - for page to image conversion)
+tiny-skia = { version = "0.11", optional = true }
+fontdb = { version = "0.16", optional = true }
+rustybuzz = { version = "0.14", optional = true }
 
 lzw = "0.10.0"
 uuid = { version = "1.0", features = ["v4"] }
@@ -117,6 +136,12 @@ wasm-ml = ["wasm", "ml"]
 
 # Debug feature for span merging analysis
 debug-span-merging = []
+
+# Page rendering to images (pure Rust via tiny-skia)
+rendering = ["dep:tiny-skia", "dep:fontdb", "dep:rustybuzz"]
+
+# Digital signatures (create and verify PDF signatures)
+signatures = ["dep:x509-parser", "dep:cms", "dep:rsa", "dep:der", "dep:spki", "dep:pkcs1", "dep:pkcs8", "dep:signature", "dep:sha1"]
 
 [profile.release]
 opt-level = 3

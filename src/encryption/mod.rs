@@ -34,12 +34,17 @@ use crate::object::Object;
 
 mod aes;
 mod algorithms;
+mod certificate;
 mod handler;
 mod rc4;
 mod write_handler;
 
 pub use algorithms::{
     compute_encryption_key, compute_owner_password_hash, compute_user_password_hash,
+};
+pub use certificate::{
+    CertEncryptDict, CertSubFilter, CertificateEncryption, CertificateEncryptionHandler,
+    KeyTransportAlgorithm, RecipientInfo, RecipientPermissions,
 };
 pub use handler::EncryptionHandler;
 pub use write_handler::EncryptionWriteHandler;

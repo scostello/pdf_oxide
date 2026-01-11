@@ -601,6 +601,149 @@ impl Pdf {
         }
     }
 
+    // ========================================================================
+    // Text Search
+    // ========================================================================
+
+    /// Search for text in the document using a regex pattern.
+    ///
+    /// Returns a list of search results with page numbers and bounding boxes.
+    ///
+    /// # Arguments
+    /// * `pattern` - Regex pattern to search for
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut pdf = Pdf::open("document.pdf")?;
+    /// let results = pdf.search("hello")?;
+    /// for result in results {
+    ///     println!("Found '{}' on page {}", result.text, result.page);
+    /// }
+    /// ```
+    pub fn search(&mut self, pattern: &str) -> Result<Vec<crate::search::SearchResult>> {
+        use crate::search::{SearchOptions, TextSearcher};
+
+        if let Some(ref mut editor) = self.editor {
+            TextSearcher::search(editor.source_mut(), pattern, &SearchOptions::default())
+        } else {
+            Err(Error::InvalidOperation(
+                "No document loaded. Use Pdf::open() to load a PDF.".to_string(),
+            ))
+        }
+    }
+
+    /// Search for text with custom options.
+    ///
+    /// # Arguments
+    /// * `pattern` - Regex pattern to search for
+    /// * `options` - Search options (case sensitivity, page range, etc.)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use pdf_oxide::search::SearchOptions;
+    ///
+    /// let mut pdf = Pdf::open("document.pdf")?;
+    /// let options = SearchOptions::case_insensitive()
+    ///     .with_whole_word(true)
+    ///     .with_page_range(0, 5);
+    /// let results = pdf.search_with_options("hello", options)?;
+    /// ```
+    pub fn search_with_options(
+        &mut self,
+        pattern: &str,
+        options: crate::search::SearchOptions,
+    ) -> Result<Vec<crate::search::SearchResult>> {
+        use crate::search::TextSearcher;
+
+        if let Some(ref mut editor) = self.editor {
+            TextSearcher::search(editor.source_mut(), pattern, &options)
+        } else {
+            Err(Error::InvalidOperation(
+                "No document loaded. Use Pdf::open() to load a PDF.".to_string(),
+            ))
+        }
+    }
+
+    /// Search for text on a specific page.
+    ///
+    /// # Arguments
+    /// * `page` - Page number (0-indexed)
+    /// * `pattern` - Regex pattern to search for
+    pub fn search_page(
+        &mut self,
+        page: usize,
+        pattern: &str,
+    ) -> Result<Vec<crate::search::SearchResult>> {
+        use crate::search::{SearchOptions, TextSearcher};
+
+        if let Some(ref mut editor) = self.editor {
+            let regex = regex::RegexBuilder::new(pattern)
+                .build()
+                .map_err(|e| Error::InvalidPdf(format!("Invalid regex pattern: {}", e)))?;
+            TextSearcher::search_page(editor.source_mut(), page, &regex, &SearchOptions::default())
+        } else {
+            Err(Error::InvalidOperation(
+                "No document loaded. Use Pdf::open() to load a PDF.".to_string(),
+            ))
+        }
+    }
+
+    /// Highlight search results with a color.
+    ///
+    /// Creates highlight annotations for each search result.
+    ///
+    /// # Arguments
+    /// * `results` - Search results to highlight
+    /// * `color` - RGB color values (0.0 to 1.0)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let results = pdf.search("important")?;
+    /// pdf.highlight_matches(&results, [1.0, 1.0, 0.0])?; // Yellow highlight
+    /// pdf.save("highlighted.pdf")?;
+    /// ```
+    pub fn highlight_matches(
+        &mut self,
+        results: &[crate::search::SearchResult],
+        color: [f32; 3],
+    ) -> Result<()> {
+        use crate::annotation_types::TextMarkupType;
+        use crate::writer::TextMarkupAnnotation;
+
+        if self.editor.is_none() {
+            return Err(Error::InvalidOperation(
+                "No document loaded. Use Pdf::open() to load a PDF.".to_string(),
+            ));
+        }
+
+        // Group results by page for efficiency
+        use std::collections::HashMap;
+        let mut by_page: HashMap<usize, Vec<&crate::search::SearchResult>> = HashMap::new();
+        for result in results {
+            by_page.entry(result.page).or_default().push(result);
+        }
+
+        // Process each page
+        for (page_num, page_results) in by_page {
+            let mut page = self.page(page_num)?;
+
+            for result in page_results {
+                // Create a highlight annotation using from_rect which auto-generates quad points
+                let annotation =
+                    TextMarkupAnnotation::from_rect(TextMarkupType::Highlight, result.bbox)
+                        .with_color(color[0], color[1], color[2]);
+                page.add_annotation(annotation);
+            }
+
+            self.save_page(page)?;
+        }
+
+        Ok(())
+    }
+
     /// Convert all pages to Markdown and save to a file.
     pub fn to_markdown_file(&mut self, path: impl AsRef<Path>) -> Result<()> {
         if let Some(ref mut editor) = self.editor {
@@ -1098,6 +1241,154 @@ impl Pdf {
     }
 
     // ========================================================================
+    // Form Flattening
+    // ========================================================================
+
+    /// Flatten form fields on a specific page.
+    ///
+    /// Renders form field appearances into page content and removes
+    /// Widget annotations. Non-form annotations are preserved.
+    ///
+    /// # Arguments
+    /// * `page` - Zero-based page index
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut pdf = Pdf::open("form.pdf")?;
+    /// pdf.flatten_forms_on_page(0)?;  // Flatten forms on page 0
+    /// pdf.save("flattened.pdf")?;
+    /// ```
+    pub fn flatten_forms_on_page(&mut self, page: usize) -> Result<()> {
+        if let Some(ref mut editor) = self.editor {
+            editor.flatten_forms_on_page(page)
+        } else {
+            Err(Error::InvalidOperation(
+                "No document loaded. Use Pdf::open() to load a PDF.".to_string(),
+            ))
+        }
+    }
+
+    /// Flatten all form fields in the document.
+    ///
+    /// Renders all form field appearances into page content, removes
+    /// Widget annotations, and removes the AcroForm dictionary from
+    /// the document catalog. The document becomes a static PDF without
+    /// any interactive form fields.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut pdf = Pdf::open("form.pdf")?;
+    /// pdf.flatten_forms()?;
+    /// pdf.save("flattened.pdf")?;
+    /// ```
+    pub fn flatten_forms(&mut self) -> Result<()> {
+        if let Some(ref mut editor) = self.editor {
+            editor.flatten_forms()
+        } else {
+            Err(Error::InvalidOperation(
+                "No document loaded. Use Pdf::open() to load a PDF.".to_string(),
+            ))
+        }
+    }
+
+    /// Check if a page is marked for form flattening.
+    pub fn is_page_marked_for_form_flatten(&self, page: usize) -> bool {
+        if let Some(ref editor) = self.editor {
+            editor.is_page_marked_for_form_flatten(page)
+        } else {
+            false
+        }
+    }
+
+    /// Check if AcroForm will be removed on save.
+    pub fn will_remove_acroform(&self) -> bool {
+        if let Some(ref editor) = self.editor {
+            editor.will_remove_acroform()
+        } else {
+            false
+        }
+    }
+
+    // =========================================================================
+    // File Attachments (Embedded Files)
+    // =========================================================================
+
+    /// Embed a file in the document.
+    ///
+    /// The file will be added to the document's EmbeddedFiles name tree
+    /// when the document is saved.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The file name (used as identifier and display name)
+    /// * `data` - The file contents
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut pdf = Pdf::open("document.pdf")?;
+    /// pdf.embed_file("data.csv", csv_bytes)?;
+    /// pdf.save("output.pdf")?;
+    /// ```
+    pub fn embed_file(&mut self, name: &str, data: Vec<u8>) -> Result<()> {
+        if let Some(ref mut editor) = self.editor {
+            editor.embed_file(name, data)
+        } else {
+            Err(Error::InvalidOperation(
+                "No document loaded. Use Pdf::open() to load a PDF.".to_string(),
+            ))
+        }
+    }
+
+    /// Embed a file with additional metadata.
+    ///
+    /// # Arguments
+    ///
+    /// * `file` - The embedded file configuration with metadata
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use pdf_oxide::writer::{EmbeddedFile, AFRelationship};
+    ///
+    /// let file = EmbeddedFile::new("data.csv", csv_bytes)
+    ///     .with_description("Sales data for Q4")
+    ///     .with_mime_type("text/csv")
+    ///     .with_af_relationship(AFRelationship::Data);
+    ///
+    /// let mut pdf = Pdf::open("document.pdf")?;
+    /// pdf.embed_file_with_options(file)?;
+    /// pdf.save("output.pdf")?;
+    /// ```
+    pub fn embed_file_with_options(&mut self, file: crate::writer::EmbeddedFile) -> Result<()> {
+        if let Some(ref mut editor) = self.editor {
+            editor.embed_file_with_options(file)
+        } else {
+            Err(Error::InvalidOperation(
+                "No document loaded. Use Pdf::open() to load a PDF.".to_string(),
+            ))
+        }
+    }
+
+    /// Get the list of files that will be embedded on save.
+    pub fn pending_embedded_files(&self) -> &[crate::writer::EmbeddedFile] {
+        if let Some(ref editor) = self.editor {
+            editor.pending_embedded_files()
+        } else {
+            &[]
+        }
+    }
+
+    /// Clear all pending embedded files.
+    pub fn clear_embedded_files(&mut self) {
+        if let Some(ref mut editor) = self.editor {
+            editor.clear_embedded_files();
+        }
+    }
+
+    // ========================================================================
     // Redaction Application
     // ========================================================================
 
@@ -1283,6 +1574,308 @@ impl Pdf {
         } else {
             false
         }
+    }
+
+    // =========================================================================
+    // Page Labels
+    // =========================================================================
+
+    /// Get all page label ranges defined in the document.
+    ///
+    /// Page labels allow different sections of a document to use different
+    /// numbering styles (e.g., roman numerals for preface, arabic for content).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut doc = Pdf::open("book.pdf")?;
+    /// let ranges = doc.page_labels()?;
+    /// for range in &ranges {
+    ///     println!("Page {} starts with style {:?}", range.start_page, range.style);
+    /// }
+    /// ```
+    pub fn page_labels(&mut self) -> Result<Vec<crate::extractors::page_labels::PageLabelRange>> {
+        use crate::extractors::page_labels::PageLabelExtractor;
+
+        if let Some(ref mut editor) = self.editor {
+            PageLabelExtractor::extract(editor.source_mut())
+        } else {
+            Err(Error::InvalidOperation(
+                "No document loaded. Use Pdf::open() to load a PDF.".to_string(),
+            ))
+        }
+    }
+
+    /// Get the label for a specific page.
+    ///
+    /// # Arguments
+    ///
+    /// * `page` - Zero-based page index
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut doc = Pdf::open("book.pdf")?;
+    /// let label = doc.page_label(0)?;  // Might be "i" for roman numeral
+    /// println!("Page 1 is labeled: {}", label);
+    /// ```
+    pub fn page_label(&mut self, page: usize) -> Result<String> {
+        use crate::extractors::page_labels::PageLabelExtractor;
+
+        let ranges = self.page_labels()?;
+        Ok(PageLabelExtractor::get_label(&ranges, page))
+    }
+
+    /// Get labels for all pages in the document.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut doc = Pdf::open("book.pdf")?;
+    /// let labels = doc.all_page_labels()?;
+    /// for (i, label) in labels.iter().enumerate() {
+    ///     println!("Page {} is labeled: {}", i + 1, label);
+    /// }
+    /// ```
+    pub fn all_page_labels(&mut self) -> Result<Vec<String>> {
+        use crate::extractors::page_labels::PageLabelExtractor;
+
+        let ranges = self.page_labels()?;
+        let page_count = self.page_count()?;
+        Ok(PageLabelExtractor::get_all_labels(&ranges, page_count))
+    }
+
+    // =========================================================================
+    // XMP Metadata
+    // =========================================================================
+
+    /// Get XMP metadata from the document.
+    ///
+    /// XMP (Extensible Metadata Platform) is XML-based metadata that provides
+    /// richer information than the traditional Info dictionary.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut doc = Pdf::open("document.pdf")?;
+    /// if let Some(xmp) = doc.xmp_metadata()? {
+    ///     if let Some(title) = &xmp.dc_title {
+    ///         println!("Title: {}", title);
+    ///     }
+    ///     for creator in &xmp.dc_creator {
+    ///         println!("Author: {}", creator);
+    ///     }
+    /// }
+    /// ```
+    pub fn xmp_metadata(&mut self) -> Result<Option<crate::extractors::xmp::XmpMetadata>> {
+        use crate::extractors::xmp::XmpExtractor;
+
+        if let Some(ref mut editor) = self.editor {
+            XmpExtractor::extract(editor.source_mut())
+        } else {
+            Err(Error::InvalidOperation(
+                "No document loaded. Use Pdf::open() to load a PDF.".to_string(),
+            ))
+        }
+    }
+
+    /// Check if the document has XMP metadata.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut doc = Pdf::open("document.pdf")?;
+    /// if doc.has_xmp_metadata()? {
+    ///     println!("Document contains XMP metadata");
+    /// }
+    /// ```
+    pub fn has_xmp_metadata(&mut self) -> Result<bool> {
+        Ok(self.xmp_metadata()?.is_some())
+    }
+
+    /// Get the document title from XMP metadata.
+    ///
+    /// Falls back to the Info dictionary title if XMP is not present.
+    pub fn xmp_title(&mut self) -> Result<Option<String>> {
+        if let Some(xmp) = self.xmp_metadata()? {
+            Ok(xmp.dc_title)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get the document authors from XMP metadata.
+    pub fn xmp_creators(&mut self) -> Result<Vec<String>> {
+        if let Some(xmp) = self.xmp_metadata()? {
+            Ok(xmp.dc_creator)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    /// Get the document description from XMP metadata.
+    pub fn xmp_description(&mut self) -> Result<Option<String>> {
+        if let Some(xmp) = self.xmp_metadata()? {
+            Ok(xmp.dc_description)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get the creator tool from XMP metadata.
+    pub fn xmp_creator_tool(&mut self) -> Result<Option<String>> {
+        if let Some(xmp) = self.xmp_metadata()? {
+            Ok(xmp.xmp_creator_tool)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get the creation date from XMP metadata (ISO 8601 format).
+    pub fn xmp_create_date(&mut self) -> Result<Option<String>> {
+        if let Some(xmp) = self.xmp_metadata()? {
+            Ok(xmp.xmp_create_date)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get the modification date from XMP metadata (ISO 8601 format).
+    pub fn xmp_modify_date(&mut self) -> Result<Option<String>> {
+        if let Some(xmp) = self.xmp_metadata()? {
+            Ok(xmp.xmp_modify_date)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get the PDF producer from XMP metadata.
+    pub fn xmp_producer(&mut self) -> Result<Option<String>> {
+        if let Some(xmp) = self.xmp_metadata()? {
+            Ok(xmp.pdf_producer)
+        } else {
+            Ok(None)
+        }
+    }
+
+    // =========================================================================
+    // Page Rendering (requires "rendering" feature)
+    // =========================================================================
+
+    /// Render a page to an image with default options (150 DPI, PNG format).
+    ///
+    /// Requires the "rendering" feature to be enabled.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use pdf_oxide::api::Pdf;
+    ///
+    /// let mut doc = Pdf::open("input.pdf")?;
+    /// let image = doc.render_page(0)?;
+    /// image.save("page1.png")?;
+    /// ```
+    #[cfg(feature = "rendering")]
+    pub fn render_page(&mut self, page: usize) -> Result<crate::rendering::RenderedImage> {
+        self.render_page_with_options(page, &crate::rendering::RenderOptions::default())
+    }
+
+    /// Render a page to an image with custom options.
+    ///
+    /// Requires the "rendering" feature to be enabled.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use pdf_oxide::api::{Pdf, RenderOptions, ImageFormat};
+    ///
+    /// let mut doc = Pdf::open("input.pdf")?;
+    /// let options = RenderOptions::with_dpi(300).as_jpeg(90);
+    /// let image = doc.render_page_with_options(0, &options)?;
+    /// image.save("page1.jpg")?;
+    /// ```
+    #[cfg(feature = "rendering")]
+    pub fn render_page_with_options(
+        &mut self,
+        page: usize,
+        options: &crate::rendering::RenderOptions,
+    ) -> Result<crate::rendering::RenderedImage> {
+        if let Some(ref mut editor) = self.editor {
+            let doc = editor.source_mut();
+            let mut renderer = crate::rendering::PageRenderer::new(options.clone());
+            renderer.render_page(doc, page)
+        } else {
+            Err(Error::InvalidOperation(
+                "No document loaded. Use Pdf::open() to load a PDF.".to_string(),
+            ))
+        }
+    }
+
+    /// Render a page to a file with default options (150 DPI).
+    ///
+    /// The format is determined by the file extension (.png, .jpg, .jpeg).
+    ///
+    /// Requires the "rendering" feature to be enabled.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use pdf_oxide::api::Pdf;
+    ///
+    /// let mut doc = Pdf::open("input.pdf")?;
+    /// doc.render_page_to_file(0, "page1.png")?;
+    /// ```
+    #[cfg(feature = "rendering")]
+    pub fn render_page_to_file(&mut self, page: usize, path: impl AsRef<Path>) -> Result<()> {
+        let path = path.as_ref();
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("png")
+            .to_lowercase();
+
+        let mut options = crate::rendering::RenderOptions::default();
+        if ext == "jpg" || ext == "jpeg" {
+            options.format = crate::rendering::ImageFormat::Jpeg;
+        }
+
+        let image = self.render_page_with_options(page, &options)?;
+        image.save(path)
+    }
+
+    /// Render a page to a file with custom DPI.
+    ///
+    /// Requires the "rendering" feature to be enabled.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use pdf_oxide::api::Pdf;
+    ///
+    /// let mut doc = Pdf::open("input.pdf")?;
+    /// doc.render_page_to_file_with_dpi(0, "page1.png", 300)?;
+    /// ```
+    #[cfg(feature = "rendering")]
+    pub fn render_page_to_file_with_dpi(
+        &mut self,
+        page: usize,
+        path: impl AsRef<Path>,
+        dpi: u32,
+    ) -> Result<()> {
+        let path = path.as_ref();
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("png")
+            .to_lowercase();
+
+        let mut options = crate::rendering::RenderOptions::with_dpi(dpi);
+        if ext == "jpg" || ext == "jpeg" {
+            options.format = crate::rendering::ImageFormat::Jpeg;
+        }
+
+        let image = self.render_page_with_options(page, &options)?;
+        image.save(path)
     }
 }
 

@@ -85,7 +85,7 @@ impl From<TextSpan> for TextContent {
             },
             style: TextStyle {
                 weight: span.font_weight,
-                italic: false, // TextSpan doesn't track italic separately
+                italic: span.is_italic,
                 color: span.color,
                 underline: false,
                 strikethrough: false,
