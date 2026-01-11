@@ -114,6 +114,10 @@ pub enum Error {
     /// Invalid operation (e.g., calling methods on uninitialized document)
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
+
+    /// Barcode/QR code generation error
+    #[error("Barcode error: {0}")]
+    Barcode(String),
 }
 
 #[cfg(test)]

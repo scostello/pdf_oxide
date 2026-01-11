@@ -109,6 +109,10 @@ rustybuzz = { version = "0.14", optional = true }
 lzw = "0.10.0"
 uuid = { version = "1.0", features = ["v4"] }
 
+# Barcode/QR code generation (optional)
+qrcode = { version = "0.14", optional = true }
+barcoders = { version = "2.0", optional = true, features = ["image"] }
+
 [dev-dependencies]
 criterion = "0.5"
 proptest = "1.4"
@@ -142,6 +146,9 @@ rendering = ["dep:tiny-skia", "dep:fontdb", "dep:rustybuzz"]
 
 # Digital signatures (create and verify PDF signatures)
 signatures = ["dep:x509-parser", "dep:cms", "dep:rsa", "dep:der", "dep:spki", "dep:pkcs1", "dep:pkcs8", "dep:signature", "dep:sha1"]
+
+# Barcode/QR code generation
+barcodes = ["dep:qrcode", "dep:barcoders"]
 
 [profile.release]
 opt-level = 3
