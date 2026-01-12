@@ -532,15 +532,17 @@ impl PyPdfDocument {
     ///     IOError: If save fails
     ///
     /// Example:
-    ///     >>> doc = PdfDocument("input.pdf")
-    ///     >>> page = doc.page(0)
-    ///     >>> page.set_text(text_id, "modified")
-    ///     >>> doc.save_page(page)
-    ///     >>> doc.save_encrypted("protected.pdf", "user123", "owner456")
+    /// ```text
+    /// >>> doc = PdfDocument("input.pdf")
+    /// >>> page = doc.page(0)
+    /// >>> page.set_text(text_id, "modified")
+    /// >>> doc.save_page(page)
+    /// >>> doc.save_encrypted("protected.pdf", "user123", "owner456")
     ///
-    ///     >>> # View-only PDF (no printing, copying, or modifying):
-    ///     >>> doc.save_encrypted("readonly.pdf", "", "owner456",
-    ///     ...     allow_print=False, allow_copy=False, allow_modify=False)
+    /// >>> # View-only PDF (no printing, copying, or modifying):
+    /// >>> doc.save_encrypted("readonly.pdf", "", "owner456",
+    /// ...     allow_print=False, allow_copy=False, allow_modify=False)
+    /// ```
     #[pyo3(signature = (path, user_password, owner_password=None, allow_print=true, allow_copy=true, allow_modify=true, allow_annotate=true))]
     fn save_encrypted(
         &mut self,
@@ -846,9 +848,11 @@ impl PyPdfDocument {
     ///     ury (float): Upper-right Y coordinate
     ///
     /// Example:
-    ///     >>> # Crop to a 6x9 inch area (72 points = 1 inch)
-    ///     >>> doc.set_page_crop_box(0, 72, 72, 504, 720)
-    ///     >>> doc.save("cropped.pdf")
+    /// ```text
+    /// >>> # Crop to a 6x9 inch area (72 points = 1 inch)
+    /// >>> doc.set_page_crop_box(0, 72, 72, 504, 720)
+    /// >>> doc.save("cropped.pdf")
+    /// ```
     fn set_page_crop_box(
         &mut self,
         page: usize,
@@ -882,9 +886,11 @@ impl PyPdfDocument {
     ///     bottom (float): Bottom margin in points
     ///
     /// Example:
-    ///     >>> # Crop 0.5 inch from all sides (72 points = 1 inch)
-    ///     >>> doc.crop_margins(36, 36, 36, 36)
-    ///     >>> doc.save("cropped.pdf")
+    /// ```text
+    /// >>> # Crop 0.5 inch from all sides (72 points = 1 inch)
+    /// >>> doc.crop_margins(36, 36, 36, 36)
+    /// >>> doc.save("cropped.pdf")
+    /// ```
     fn crop_margins(&mut self, left: f32, right: f32, top: f32, bottom: f32) -> PyResult<()> {
         if self.editor.is_none() {
             let editor = RustDocumentEditor::open(&self.path)
@@ -917,9 +923,11 @@ impl PyPdfDocument {
     ///     ury (float): Upper-right Y coordinate
     ///
     /// Example:
-    ///     >>> # Erase a region in the upper-left corner
-    ///     >>> doc.erase_region(0, 72, 700, 200, 792)
-    ///     >>> doc.save("output.pdf")
+    /// ```text
+    /// >>> # Erase a region in the upper-left corner
+    /// >>> doc.erase_region(0, 72, 700, 200, 792)
+    /// >>> doc.save("output.pdf")
+    /// ```
     fn erase_region(
         &mut self,
         page: usize,
@@ -1348,12 +1356,14 @@ impl PyPdfDocument {
     ///         - height (float): Height of match bounding box
     ///
     /// Example:
-    ///     >>> results = doc.search("hello")
-    ///     >>> for r in results:
-    ///     ...     print(f"Found '{r['text']}' on page {r['page']}")
+    /// ```text
+    /// >>> results = doc.search("hello")
+    /// >>> for r in results:
+    /// ...     print(f"Found '{r['text']}' on page {r['page']}")
     ///
-    ///     >>> # Case insensitive regex search
-    ///     >>> results = doc.search(r"\\d+\\.\\d+", case_insensitive=True)
+    /// >>> # Case insensitive regex search
+    /// >>> results = doc.search(r"\\d+\\.\\d+", case_insensitive=True)
+    /// ```
     #[pyo3(signature = (pattern, case_insensitive=false, literal=false, whole_word=false, max_results=0))]
     fn search(
         &mut self,
