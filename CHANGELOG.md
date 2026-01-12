@@ -4,6 +4,24 @@ All notable changes to PDFOxide are documented here.
 
 ## [0.3.0] - 2026-01-10
 
+### Added - Unified `Pdf` API
+- **One API for Extract, Create, and Edit** - The new `Pdf` class unifies all PDF operations
+  - `Pdf::open("input.pdf")` - Open existing PDF for reading and editing
+  - `Pdf::from_markdown(content)` - Create new PDF from Markdown
+  - `Pdf::from_html(content)` - Create new PDF from HTML
+  - `Pdf::from_text(content)` - Create new PDF from plain text
+  - `Pdf::from_image(path)` - Create PDF from image file
+  - DOM-like page navigation with `pdf.page(0)` for querying and modifying content
+  - Seamless save with `pdf.save("output.pdf")` or `pdf.save_encrypted()`
+- **Fluent Builder Pattern** - `PdfBuilder` for advanced configuration
+  ```rust
+  PdfBuilder::new()
+      .title("My Document")
+      .author("Author Name")
+      .page_size(PageSize::A4)
+      .from_markdown("# Content")?
+  ```
+
 ### Added - PDF Creation
 - **PDF Creation API** - Fluent `DocumentBuilder` for programmatic PDF generation
   - `Pdf::create()` / `DocumentBuilder::new()` entry points
