@@ -51,7 +51,7 @@
 //!
 //! ## Planned for v0.4.0+
 //!
-//! - **Digital Signatures**: Signature field support with cryptographic implementation
+//! - **Digital Signatures**: Full signing and verification (foundation in v0.3.0)
 //! - **Advanced**: Figures, citations, annotations, accessibility (v0.5.0+)
 //!
 //! ## Quick Start - Rust
