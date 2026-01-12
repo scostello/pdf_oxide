@@ -157,6 +157,9 @@ All notable changes to PDFOxide are documented here.
 - Python module docstring updated for v0.3.0 features
 - Branding updated with Extract/Create/Edit pillars
 
+### Fixed
+- **Outline action handling** - correctly dereference actions indirectly referenced by outline items
+
 ## [0.2.6] - 2026-01-09
 
 ### Added
