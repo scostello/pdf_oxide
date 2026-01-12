@@ -1,0 +1,382 @@
+//! Digital signature types and data structures.
+//!
+//! This module defines the core types used for PDF digital signatures.
+
+use crate::error::{Error, Result};
+use crate::geometry::Rect;
+
+/// Digest algorithm used for signing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DigestAlgorithm {
+    /// SHA-1 (deprecated, but still common in legacy PDFs)
+    Sha1,
+    /// SHA-256 (recommended)
+    #[default]
+    Sha256,
+    /// SHA-384
+    Sha384,
+    /// SHA-512
+    Sha512,
+}
+
+impl DigestAlgorithm {
+    /// Get the OID for this digest algorithm.
+    pub fn oid(&self) -> &'static [u8] {
+        match self {
+            DigestAlgorithm::Sha1 => &[0x2B, 0x0E, 0x03, 0x02, 0x1A], // 1.3.14.3.2.26
+            DigestAlgorithm::Sha256 => &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01], // 2.16.840.1.101.3.4.2.1
+            DigestAlgorithm::Sha384 => &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02], // 2.16.840.1.101.3.4.2.2
+            DigestAlgorithm::Sha512 => &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03], // 2.16.840.1.101.3.4.2.3
+        }
+    }
+
+    /// Get the name of this algorithm.
+    pub fn name(&self) -> &'static str {
+        match self {
+            DigestAlgorithm::Sha1 => "SHA-1",
+            DigestAlgorithm::Sha256 => "SHA-256",
+            DigestAlgorithm::Sha384 => "SHA-384",
+            DigestAlgorithm::Sha512 => "SHA-512",
+        }
+    }
+}
+
+/// Signature sub-filter type (signature format).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SignatureSubFilter {
+    /// adbe.pkcs7.detached - PKCS#7 detached signature
+    #[default]
+    Pkcs7Detached,
+    /// adbe.pkcs7.sha1 - PKCS#7 with SHA-1 digest
+    Pkcs7Sha1,
+    /// ETSI.CAdES.detached - PAdES CAdES signature
+    CadesDetached,
+    /// ETSI.RFC3161 - Timestamp token
+    Rfc3161,
+}
+
+impl SignatureSubFilter {
+    /// Get the PDF name for this sub-filter.
+    pub fn as_pdf_name(&self) -> &'static str {
+        match self {
+            SignatureSubFilter::Pkcs7Detached => "adbe.pkcs7.detached",
+            SignatureSubFilter::Pkcs7Sha1 => "adbe.pkcs7.sha1",
+            SignatureSubFilter::CadesDetached => "ETSI.CAdES.detached",
+            SignatureSubFilter::Rfc3161 => "ETSI.RFC3161",
+        }
+    }
+
+    /// Parse a PDF name into a sub-filter type.
+    pub fn from_pdf_name(name: &str) -> Option<Self> {
+        match name {
+            "adbe.pkcs7.detached" => Some(SignatureSubFilter::Pkcs7Detached),
+            "adbe.pkcs7.sha1" => Some(SignatureSubFilter::Pkcs7Sha1),
+            "ETSI.CAdES.detached" => Some(SignatureSubFilter::CadesDetached),
+            "ETSI.RFC3161" => Some(SignatureSubFilter::Rfc3161),
+            _ => None,
+        }
+    }
+}
+
+/// Signing credentials containing certificate and private key.
+#[derive(Clone)]
+pub struct SigningCredentials {
+    /// DER-encoded X.509 certificate
+    pub certificate: Vec<u8>,
+    /// DER-encoded private key (PKCS#8 format)
+    pub private_key: Vec<u8>,
+    /// Certificate chain (intermediate certificates, DER-encoded)
+    pub chain: Vec<Vec<u8>>,
+}
+
+impl SigningCredentials {
+    /// Create new signing credentials from raw components.
+    pub fn new(certificate: Vec<u8>, private_key: Vec<u8>) -> Self {
+        Self {
+            certificate,
+            private_key,
+            chain: Vec::new(),
+        }
+    }
+
+    /// Create credentials with a certificate chain.
+    pub fn with_chain(mut self, chain: Vec<Vec<u8>>) -> Self {
+        self.chain = chain;
+        self
+    }
+
+    /// Load credentials from a PKCS#12 (.p12/.pfx) file.
+    #[cfg(feature = "signatures")]
+    pub fn from_pkcs12(data: &[u8], password: &str) -> Result<Self> {
+        // PKCS#12 parsing would be implemented here
+        // For now, return an error indicating this is not yet implemented
+        let _ = (data, password);
+        Err(Error::InvalidPdf("PKCS#12 loading not yet implemented".to_string()))
+    }
+
+    /// Load credentials from separate PEM files.
+    #[cfg(feature = "signatures")]
+    pub fn from_pem(cert_pem: &str, key_pem: &str) -> Result<Self> {
+        // PEM parsing would be implemented here
+        let _ = (cert_pem, key_pem);
+        Err(Error::InvalidPdf("PEM loading not yet implemented".to_string()))
+    }
+}
+
+impl std::fmt::Debug for SigningCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SigningCredentials")
+            .field("certificate", &format!("{} bytes", self.certificate.len()))
+            .field("private_key", &"[REDACTED]")
+            .field("chain", &format!("{} certificates", self.chain.len()))
+            .finish()
+    }
+}
+
+/// Options for signing a PDF.
+#[derive(Debug, Clone)]
+pub struct SignOptions {
+    /// Digest algorithm to use
+    pub digest_algorithm: DigestAlgorithm,
+    /// Signature sub-filter (format)
+    pub sub_filter: SignatureSubFilter,
+    /// Reason for signing
+    pub reason: Option<String>,
+    /// Location where the document was signed
+    pub location: Option<String>,
+    /// Contact information
+    pub contact_info: Option<String>,
+    /// Name of the signer (if different from certificate CN)
+    pub name: Option<String>,
+    /// Signature appearance (for visible signatures)
+    pub appearance: Option<SignatureAppearance>,
+    /// Whether to embed a timestamp
+    pub embed_timestamp: bool,
+    /// Timestamp server URL (for embedded timestamps)
+    pub timestamp_url: Option<String>,
+    /// Estimated signature size in bytes (for ByteRange calculation)
+    pub estimated_size: usize,
+}
+
+impl Default for SignOptions {
+    fn default() -> Self {
+        Self {
+            digest_algorithm: DigestAlgorithm::Sha256,
+            sub_filter: SignatureSubFilter::Pkcs7Detached,
+            reason: None,
+            location: None,
+            contact_info: None,
+            name: None,
+            appearance: None,
+            embed_timestamp: false,
+            timestamp_url: None,
+            estimated_size: 8192, // Conservative default for signature size
+        }
+    }
+}
+
+impl SignOptions {
+    /// Create sign options with a visible signature appearance.
+    pub fn with_appearance(mut self, appearance: SignatureAppearance) -> Self {
+        self.appearance = Some(appearance);
+        self
+    }
+
+    /// Set the reason for signing.
+    pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
+        self.reason = Some(reason.into());
+        self
+    }
+
+    /// Set the signing location.
+    pub fn with_location(mut self, location: impl Into<String>) -> Self {
+        self.location = Some(location.into());
+        self
+    }
+
+    /// Enable timestamping with the specified TSA URL.
+    pub fn with_timestamp(mut self, tsa_url: impl Into<String>) -> Self {
+        self.embed_timestamp = true;
+        self.timestamp_url = Some(tsa_url.into());
+        self
+    }
+}
+
+/// Visible signature appearance configuration.
+#[derive(Debug, Clone)]
+pub struct SignatureAppearance {
+    /// Page number (0-indexed)
+    pub page: usize,
+    /// Rectangle for the signature appearance
+    pub rect: Rect,
+    /// Whether to show signer name
+    pub show_name: bool,
+    /// Whether to show signing date
+    pub show_date: bool,
+    /// Whether to show signing reason
+    pub show_reason: bool,
+    /// Whether to show signing location
+    pub show_location: bool,
+    /// Custom background image (PNG data)
+    pub background_image: Option<Vec<u8>>,
+    /// Custom font size
+    pub font_size: f32,
+}
+
+impl Default for SignatureAppearance {
+    fn default() -> Self {
+        Self {
+            page: 0,
+            rect: Rect::new(72.0, 72.0, 200.0, 50.0),
+            show_name: true,
+            show_date: true,
+            show_reason: true,
+            show_location: true,
+            background_image: None,
+            font_size: 10.0,
+        }
+    }
+}
+
+/// Information about an existing signature in a PDF.
+#[derive(Debug, Clone, Default)]
+pub struct SignatureInfo {
+    /// Name of the signer
+    pub signer_name: Option<String>,
+    /// Signing time
+    pub signing_time: Option<String>,
+    /// Reason for signing
+    pub reason: Option<String>,
+    /// Signing location
+    pub location: Option<String>,
+    /// Contact information
+    pub contact_info: Option<String>,
+    /// Signature sub-filter type
+    pub sub_filter: Option<SignatureSubFilter>,
+    /// Whether the signature covers the whole document
+    pub covers_whole_document: bool,
+    /// Byte range of the signed data
+    pub byte_range: Vec<i64>,
+    /// Certificate subject common name
+    pub certificate_cn: Option<String>,
+    /// Certificate issuer
+    pub certificate_issuer: Option<String>,
+    /// Certificate validity start
+    pub valid_from: Option<String>,
+    /// Certificate validity end
+    pub valid_to: Option<String>,
+}
+
+/// Result of signature verification.
+#[derive(Debug, Clone)]
+pub struct VerificationResult {
+    /// Overall verification status
+    pub status: VerificationStatus,
+    /// Signature information
+    pub signature_info: SignatureInfo,
+    /// Verification messages (errors, warnings)
+    pub messages: Vec<String>,
+    /// Whether the document was modified after signing
+    pub document_modified: bool,
+    /// Whether the certificate is trusted
+    pub certificate_trusted: bool,
+    /// Whether the certificate chain is valid
+    pub chain_valid: bool,
+    /// Whether the certificate has expired
+    pub certificate_expired: bool,
+    /// Whether the signature timestamp is valid (if present)
+    pub timestamp_valid: Option<bool>,
+}
+
+impl Default for VerificationResult {
+    fn default() -> Self {
+        Self {
+            status: VerificationStatus::Unknown,
+            signature_info: SignatureInfo::default(),
+            messages: Vec::new(),
+            document_modified: false,
+            certificate_trusted: false,
+            chain_valid: false,
+            certificate_expired: false,
+            timestamp_valid: None,
+        }
+    }
+}
+
+/// Verification status of a signature.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerificationStatus {
+    /// Signature is valid
+    Valid,
+    /// Signature is invalid (cryptographically)
+    Invalid,
+    /// Signature validity is unknown (e.g., untrusted certificate)
+    Unknown,
+    /// Signature is valid but the document was modified
+    ValidWithWarnings,
+}
+
+impl VerificationStatus {
+    /// Check if the status indicates a valid signature.
+    pub fn is_valid(&self) -> bool {
+        matches!(self, VerificationStatus::Valid)
+    }
+
+    /// Check if the status indicates any form of validity (including warnings).
+    pub fn is_ok(&self) -> bool {
+        matches!(self, VerificationStatus::Valid | VerificationStatus::ValidWithWarnings)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_digest_algorithm_names() {
+        assert_eq!(DigestAlgorithm::Sha256.name(), "SHA-256");
+        assert_eq!(DigestAlgorithm::Sha1.name(), "SHA-1");
+    }
+
+    #[test]
+    fn test_sub_filter_names() {
+        assert_eq!(SignatureSubFilter::Pkcs7Detached.as_pdf_name(), "adbe.pkcs7.detached");
+        assert_eq!(
+            SignatureSubFilter::from_pdf_name("adbe.pkcs7.detached"),
+            Some(SignatureSubFilter::Pkcs7Detached)
+        );
+    }
+
+    #[test]
+    fn test_sign_options_default() {
+        let opts = SignOptions::default();
+        assert_eq!(opts.digest_algorithm, DigestAlgorithm::Sha256);
+        assert_eq!(opts.sub_filter, SignatureSubFilter::Pkcs7Detached);
+        assert!(!opts.embed_timestamp);
+    }
+
+    #[test]
+    fn test_sign_options_builder() {
+        let opts = SignOptions::default()
+            .with_reason("Test signing")
+            .with_location("Test City");
+        assert_eq!(opts.reason, Some("Test signing".to_string()));
+        assert_eq!(opts.location, Some("Test City".to_string()));
+    }
+
+    #[test]
+    fn test_verification_status() {
+        assert!(VerificationStatus::Valid.is_valid());
+        assert!(!VerificationStatus::Invalid.is_valid());
+        assert!(VerificationStatus::ValidWithWarnings.is_ok());
+        assert!(!VerificationStatus::Unknown.is_valid());
+    }
+
+    #[test]
+    fn test_signing_credentials_debug() {
+        let creds = SigningCredentials::new(vec![1, 2, 3], vec![4, 5, 6]);
+        let debug = format!("{:?}", creds);
+        assert!(debug.contains("[REDACTED]"));
+        assert!(debug.contains("3 bytes"));
+    }
+}

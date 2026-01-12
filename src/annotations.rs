@@ -1,20 +1,35 @@
 //! PDF annotations support.
 //!
 //! Provides access to PDF annotations including text notes, highlights,
-//! comments, and other markup.
+//! comments, and other markup per PDF spec ISO 32000-1:2008, Section 12.5.
+//!
+//! # Supported Annotation Types
+//!
+//! - Text (sticky notes)
+//! - Link (hyperlinks)
+//! - Text Markup (Highlight, Underline, StrikeOut, Squiggly)
+//! - FreeText (text boxes)
+//! - Shape (Line, Square, Circle, Polygon, PolyLine)
+//! - Stamp, Ink, FileAttachment, Popup, Caret, Redact, Widget
 
+use crate::annotation_types::{AnnotationFlags, AnnotationSubtype, WidgetFieldType};
 use crate::document::PdfDocument;
 use crate::error::Result;
 use crate::object::Object;
 
 /// A PDF annotation.
+///
+/// Represents all PDF annotation types per ISO 32000-1:2008, Section 12.5.
 #[derive(Debug, Clone)]
 pub struct Annotation {
-    /// Type of annotation (Text, Highlight, Link, etc.)
+    /// Type of annotation (always "Annot" for annotations)
     pub annotation_type: String,
 
-    /// Annotation subtype if available
+    /// Annotation subtype (Text, Highlight, Link, etc.)
     pub subtype: Option<String>,
+
+    /// Parsed annotation subtype enum
+    pub subtype_enum: AnnotationSubtype,
 
     /// Text contents of the annotation
     pub contents: Option<String>,
@@ -22,11 +37,14 @@ pub struct Annotation {
     /// Rectangle bounds [x1, y1, x2, y2]
     pub rect: Option<[f64; 4]>,
 
-    /// Author/creator of the annotation
+    /// Author/creator of the annotation (T entry)
     pub author: Option<String>,
 
     /// Creation date
     pub creation_date: Option<String>,
+
+    /// Modification date (M entry)
+    pub modification_date: Option<String>,
 
     /// Subject of the annotation
     pub subject: Option<String>,
@@ -38,6 +56,57 @@ pub struct Annotation {
     /// Link action (for Link annotations)
     /// PDF Spec: ISO 32000-1:2008, Section 12.6 - Actions
     pub action: Option<LinkAction>,
+
+    /// QuadPoints for text markup annotations (Highlight, Underline, StrikeOut, Squiggly)
+    /// Each quad is 8 values: x1,y1, x2,y2, x3,y3, x4,y4
+    /// PDF Spec: ISO 32000-1:2008, Section 12.5.6.10
+    pub quad_points: Option<Vec<[f64; 8]>>,
+
+    /// Color array (C entry) - RGB or other color space
+    pub color: Option<Vec<f64>>,
+
+    /// Opacity (CA entry) - 0.0 to 1.0
+    pub opacity: Option<f64>,
+
+    /// Annotation flags (F entry)
+    pub flags: AnnotationFlags,
+
+    /// Border style array (Border entry)
+    pub border: Option<[f64; 3]>,
+
+    /// Interior color for closed shapes (IC entry)
+    pub interior_color: Option<Vec<f64>>,
+
+    // ===== Widget annotation fields (form fields) =====
+    /// Field type for Widget annotations (FT entry: Btn, Tx, Ch, Sig)
+    pub field_type: Option<WidgetFieldType>,
+
+    /// Field name for Widget annotations (T entry)
+    /// Note: This is different from author (also T entry) for other annotation types
+    pub field_name: Option<String>,
+
+    /// Field value for Widget annotations (V entry)
+    pub field_value: Option<String>,
+
+    /// Default value for Widget annotations (DV entry)
+    pub default_value: Option<String>,
+
+    /// Field flags for Widget annotations (Ff entry)
+    pub field_flags: Option<u32>,
+
+    /// Options for choice fields (Opt entry)
+    pub options: Option<Vec<String>>,
+
+    /// Appearance state for checkboxes/radios (AS entry)
+    pub appearance_state: Option<String>,
+
+    // ===== Round-trip preservation =====
+    /// Raw annotation dictionary for preserving unknown properties during round-trip.
+    ///
+    /// This contains the complete original PDF dictionary, enabling faithful
+    /// preservation of properties that aren't explicitly parsed (appearance streams,
+    /// popup references, vendor-specific extensions, etc.).
+    pub raw_dict: Option<std::collections::HashMap<String, crate::object::Object>>,
 }
 
 /// Link destination within a PDF document.
@@ -169,6 +238,12 @@ impl PdfDocument {
             .and_then(|s| s.as_name())
             .map(|s| s.to_string());
 
+        // Parse subtype to enum
+        let subtype_enum = subtype
+            .as_deref()
+            .map(AnnotationSubtype::from_pdf_name)
+            .unwrap_or(AnnotationSubtype::Unknown);
+
         // Get contents (text)
         let contents = dict.get("Contents").and_then(|c| match c {
             Object::String(s) => Some(String::from_utf8_lossy(s).to_string()),
@@ -203,14 +278,65 @@ impl PdfDocument {
             _ => None,
         });
 
+        // Get modification date (M entry)
+        let modification_date = dict.get("M").and_then(|d| match d {
+            Object::String(s) => Some(String::from_utf8_lossy(s).to_string()),
+            _ => None,
+        });
+
         // Get subject
         let subject = dict.get("Subj").and_then(|s| match s {
             Object::String(s) => Some(String::from_utf8_lossy(s).to_string()),
             _ => None,
         });
 
+        // Get annotation flags (F entry)
+        let flags = dict
+            .get("F")
+            .and_then(|f| match f {
+                Object::Integer(n) => Some(AnnotationFlags::new(*n as u32)),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        // Get color (C entry)
+        let color = Self::parse_number_array(dict.get("C"));
+
+        // Get opacity (CA entry)
+        let opacity = dict.get("CA").and_then(|o| match o {
+            Object::Real(f) => Some(*f),
+            Object::Integer(n) => Some(*n as f64),
+            _ => None,
+        });
+
+        // Get border (Border entry)
+        let border = dict.get("Border").and_then(|b| match b {
+            Object::Array(arr) if arr.len() >= 3 => {
+                let mut border_arr = [0.0; 3];
+                for (i, obj) in arr.iter().take(3).enumerate() {
+                    border_arr[i] = match obj {
+                        Object::Integer(n) => *n as f64,
+                        Object::Real(f) => *f,
+                        _ => 0.0,
+                    };
+                }
+                Some(border_arr)
+            },
+            _ => None,
+        });
+
+        // Get interior color (IC entry) for closed shapes
+        let interior_color = Self::parse_number_array(dict.get("IC"));
+
+        // Parse QuadPoints for text markup annotations
+        let quad_points = if subtype_enum.is_text_markup() {
+            Self::parse_quad_points(dict.get("QuadPoints"))
+        } else {
+            None
+        };
+
         // Parse link-specific fields if this is a Link annotation
-        let (destination, action) = if subtype.as_deref() == Some("Link") {
+        let (destination, action) = if subtype_enum == AnnotationSubtype::Link {
             let dest = dict
                 .get("Dest")
                 .and_then(|d| self.parse_destination(d).ok());
@@ -220,17 +346,240 @@ impl PdfDocument {
             (None, None)
         };
 
+        // Parse Widget-specific fields if this is a Widget annotation
+        let (
+            field_type,
+            field_name,
+            field_value,
+            default_value,
+            field_flags,
+            options,
+            appearance_state,
+        ) = if subtype_enum == AnnotationSubtype::Widget {
+            self.parse_widget_fields(dict)
+        } else {
+            (None, None, None, None, None, None, None)
+        };
+
         Ok(Annotation {
             annotation_type,
             subtype,
+            subtype_enum,
             contents,
             rect,
             author,
             creation_date,
+            modification_date,
             subject,
             destination,
             action,
+            quad_points,
+            color,
+            opacity,
+            flags,
+            border,
+            interior_color,
+            field_type,
+            field_name,
+            field_value,
+            default_value,
+            field_flags,
+            options,
+            appearance_state,
+            raw_dict: Some(dict.clone()),
         })
+    }
+
+    /// Parse Widget annotation fields (form fields).
+    ///
+    /// PDF Spec: ISO 32000-1:2008, Section 12.7 (Interactive Forms)
+    fn parse_widget_fields(
+        &self,
+        dict: &std::collections::HashMap<String, Object>,
+    ) -> (
+        Option<WidgetFieldType>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<u32>,
+        Option<Vec<String>>,
+        Option<String>,
+    ) {
+        // Get field type (FT entry)
+        let ft = dict
+            .get("FT")
+            .and_then(|f| f.as_name())
+            .map(|s| s.to_string());
+
+        // Get field flags (Ff entry)
+        let field_flags = dict.get("Ff").and_then(|f| match f {
+            Object::Integer(n) => Some(*n as u32),
+            _ => None,
+        });
+
+        // Get field value (V entry)
+        let field_value = Self::parse_string_value(dict.get("V"));
+
+        // Get default value (DV entry)
+        let default_value = Self::parse_string_value(dict.get("DV"));
+
+        // Get field name (T entry)
+        let field_name = dict.get("T").and_then(|t| match t {
+            Object::String(s) => Some(String::from_utf8_lossy(s).to_string()),
+            _ => None,
+        });
+
+        // Get appearance state (AS entry) for checkboxes/radios
+        let appearance_state = dict
+            .get("AS")
+            .and_then(|a| a.as_name())
+            .map(|s| s.to_string());
+
+        // Get options (Opt entry) for choice fields
+        let options = Self::parse_options_array(dict.get("Opt"));
+
+        // Determine field type
+        let field_type = match ft.as_deref() {
+            Some("Tx") => Some(WidgetFieldType::Text),
+            Some("Btn") => {
+                // Button field - determine if checkbox, radio, or push button
+                let ff = field_flags.unwrap_or(0);
+                // Bit 17 (0x10000): Radio buttons
+                // Bit 16 (0x8000): Push buttons
+                if ff & 0x10000 != 0 {
+                    // Radio button
+                    Some(WidgetFieldType::Radio {
+                        selected: appearance_state.clone(),
+                    })
+                } else if ff & 0x8000 != 0 {
+                    // Push button
+                    Some(WidgetFieldType::Button)
+                } else {
+                    // Checkbox
+                    let checked = appearance_state
+                        .as_deref()
+                        .map(|s| s != "Off" && !s.is_empty())
+                        .unwrap_or(false);
+                    Some(WidgetFieldType::Checkbox { checked })
+                }
+            },
+            Some("Ch") => {
+                // Choice field
+                Some(WidgetFieldType::Choice {
+                    options: options.clone().unwrap_or_default(),
+                    selected: field_value.clone(),
+                })
+            },
+            Some("Sig") => Some(WidgetFieldType::Signature),
+            _ => None,
+        };
+
+        (
+            field_type,
+            field_name,
+            field_value,
+            default_value,
+            field_flags,
+            options,
+            appearance_state,
+        )
+    }
+
+    /// Parse a string value from various PDF object types.
+    fn parse_string_value(obj: Option<&Object>) -> Option<String> {
+        match obj {
+            Some(Object::String(s)) => Some(String::from_utf8_lossy(s).to_string()),
+            Some(Object::Name(n)) => Some(n.clone()),
+            Some(Object::Integer(i)) => Some(i.to_string()),
+            Some(Object::Real(f)) => Some(f.to_string()),
+            _ => None,
+        }
+    }
+
+    /// Parse options array for choice fields.
+    fn parse_options_array(obj: Option<&Object>) -> Option<Vec<String>> {
+        match obj {
+            Some(Object::Array(arr)) if !arr.is_empty() => {
+                let opts: Vec<String> = arr
+                    .iter()
+                    .filter_map(|o| match o {
+                        Object::String(s) => Some(String::from_utf8_lossy(s).to_string()),
+                        Object::Name(n) => Some(n.clone()),
+                        Object::Array(inner) if !inner.is_empty() => {
+                            // Option can be [export_value, display_value]
+                            inner.first().and_then(|first| match first {
+                                Object::String(s) => Some(String::from_utf8_lossy(s).to_string()),
+                                _ => None,
+                            })
+                        },
+                        _ => None,
+                    })
+                    .collect();
+                if opts.is_empty() {
+                    None
+                } else {
+                    Some(opts)
+                }
+            },
+            _ => None,
+        }
+    }
+
+    /// Parse an array of numbers (for color, etc.)
+    fn parse_number_array(obj: Option<&Object>) -> Option<Vec<f64>> {
+        match obj {
+            Some(Object::Array(arr)) if !arr.is_empty() => {
+                let nums: Vec<f64> = arr
+                    .iter()
+                    .filter_map(|o| match o {
+                        Object::Integer(n) => Some(*n as f64),
+                        Object::Real(f) => Some(*f),
+                        _ => None,
+                    })
+                    .collect();
+                if nums.is_empty() {
+                    None
+                } else {
+                    Some(nums)
+                }
+            },
+            _ => None,
+        }
+    }
+
+    /// Parse QuadPoints array into groups of 8 values.
+    ///
+    /// QuadPoints are 8 values per quad: x1,y1, x2,y2, x3,y3, x4,y4
+    fn parse_quad_points(obj: Option<&Object>) -> Option<Vec<[f64; 8]>> {
+        match obj {
+            Some(Object::Array(arr)) if arr.len() >= 8 => {
+                let nums: Vec<f64> = arr
+                    .iter()
+                    .filter_map(|o| match o {
+                        Object::Integer(n) => Some(*n as f64),
+                        Object::Real(f) => Some(*f),
+                        _ => None,
+                    })
+                    .collect();
+
+                // Group into 8-value quads
+                let quads: Vec<[f64; 8]> = nums
+                    .chunks_exact(8)
+                    .map(|chunk| {
+                        let mut quad = [0.0; 8];
+                        quad.copy_from_slice(chunk);
+                        quad
+                    })
+                    .collect();
+
+                if quads.is_empty() {
+                    None
+                } else {
+                    Some(quads)
+                }
+            },
+            _ => None,
+        }
     }
 
     /// Parse a destination object.
@@ -373,18 +722,284 @@ mod tests {
         let annot = Annotation {
             annotation_type: "Annot".to_string(),
             subtype: Some("Text".to_string()),
+            subtype_enum: AnnotationSubtype::Text,
             contents: Some("This is a comment".to_string()),
             rect: Some([100.0, 200.0, 150.0, 250.0]),
             author: Some("John Doe".to_string()),
             creation_date: Some("D:20231030120000".to_string()),
+            modification_date: None,
             subject: Some("Review".to_string()),
             destination: None,
             action: None,
+            quad_points: None,
+            color: None,
+            opacity: None,
+            flags: AnnotationFlags::empty(),
+            border: None,
+            interior_color: None,
+            field_type: None,
+            field_name: None,
+            field_value: None,
+            default_value: None,
+            field_flags: None,
+            options: None,
+            appearance_state: None,
+            raw_dict: None,
         };
 
         assert_eq!(annot.annotation_type, "Annot");
         assert_eq!(annot.subtype, Some("Text".to_string()));
+        assert_eq!(annot.subtype_enum, AnnotationSubtype::Text);
         assert_eq!(annot.contents, Some("This is a comment".to_string()));
         assert!(annot.rect.is_some());
+    }
+
+    #[test]
+    fn test_highlight_annotation() {
+        let annot = Annotation {
+            annotation_type: "Annot".to_string(),
+            subtype: Some("Highlight".to_string()),
+            subtype_enum: AnnotationSubtype::Highlight,
+            contents: Some("Highlighted text".to_string()),
+            rect: Some([100.0, 700.0, 200.0, 720.0]),
+            author: Some("Reviewer".to_string()),
+            creation_date: None,
+            modification_date: None,
+            subject: None,
+            destination: None,
+            action: None,
+            quad_points: Some(vec![[100.0, 700.0, 200.0, 700.0, 200.0, 720.0, 100.0, 720.0]]),
+            color: Some(vec![1.0, 1.0, 0.0]), // Yellow
+            opacity: Some(0.5),
+            flags: AnnotationFlags::printable(),
+            border: None,
+            interior_color: None,
+            field_type: None,
+            field_name: None,
+            field_value: None,
+            default_value: None,
+            field_flags: None,
+            options: None,
+            appearance_state: None,
+            raw_dict: None,
+        };
+
+        assert!(annot.subtype_enum.is_text_markup());
+        assert!(annot.quad_points.is_some());
+        assert_eq!(annot.quad_points.as_ref().unwrap().len(), 1);
+        assert_eq!(annot.color, Some(vec![1.0, 1.0, 0.0]));
+        assert_eq!(annot.opacity, Some(0.5));
+        assert!(annot.flags.is_printable());
+    }
+
+    #[test]
+    fn test_parse_number_array() {
+        use crate::object::Object;
+
+        // RGB color
+        let arr = vec![Object::Real(1.0), Object::Real(0.5), Object::Real(0.0)];
+        let result = PdfDocument::parse_number_array(Some(&Object::Array(arr)));
+        assert_eq!(result, Some(vec![1.0, 0.5, 0.0]));
+
+        // Mixed integers and reals
+        let arr2 = vec![Object::Integer(1), Object::Real(0.5)];
+        let result2 = PdfDocument::parse_number_array(Some(&Object::Array(arr2)));
+        assert_eq!(result2, Some(vec![1.0, 0.5]));
+
+        // None
+        let result3 = PdfDocument::parse_number_array(None);
+        assert!(result3.is_none());
+    }
+
+    #[test]
+    fn test_parse_quad_points() {
+        use crate::object::Object;
+
+        // Single quad (8 values)
+        let arr: Vec<Object> = vec![
+            Object::Real(100.0),
+            Object::Real(700.0),
+            Object::Real(200.0),
+            Object::Real(700.0),
+            Object::Real(200.0),
+            Object::Real(720.0),
+            Object::Real(100.0),
+            Object::Real(720.0),
+        ];
+        let result = PdfDocument::parse_quad_points(Some(&Object::Array(arr)));
+        assert!(result.is_some());
+        let quads = result.unwrap();
+        assert_eq!(quads.len(), 1);
+        assert_eq!(quads[0][0], 100.0);
+        assert_eq!(quads[0][6], 100.0);
+    }
+
+    #[test]
+    fn test_widget_text_field_annotation() {
+        let annot = Annotation {
+            annotation_type: "Annot".to_string(),
+            subtype: Some("Widget".to_string()),
+            subtype_enum: AnnotationSubtype::Widget,
+            contents: None,
+            rect: Some([100.0, 700.0, 300.0, 720.0]),
+            author: None,
+            creation_date: None,
+            modification_date: None,
+            subject: None,
+            destination: None,
+            action: None,
+            quad_points: None,
+            color: None,
+            opacity: None,
+            flags: AnnotationFlags::empty(),
+            border: None,
+            interior_color: None,
+            field_type: Some(WidgetFieldType::Text),
+            field_name: Some("FirstName".to_string()),
+            field_value: Some("John".to_string()),
+            default_value: None,
+            field_flags: None,
+            options: None,
+            appearance_state: None,
+            raw_dict: None,
+        };
+
+        assert_eq!(annot.subtype_enum, AnnotationSubtype::Widget);
+        assert_eq!(annot.field_type, Some(WidgetFieldType::Text));
+        assert_eq!(annot.field_name, Some("FirstName".to_string()));
+        assert_eq!(annot.field_value, Some("John".to_string()));
+    }
+
+    #[test]
+    fn test_widget_checkbox_annotation() {
+        let annot = Annotation {
+            annotation_type: "Annot".to_string(),
+            subtype: Some("Widget".to_string()),
+            subtype_enum: AnnotationSubtype::Widget,
+            contents: None,
+            rect: Some([100.0, 600.0, 120.0, 620.0]),
+            author: None,
+            creation_date: None,
+            modification_date: None,
+            subject: None,
+            destination: None,
+            action: None,
+            quad_points: None,
+            color: None,
+            opacity: None,
+            flags: AnnotationFlags::empty(),
+            border: None,
+            interior_color: None,
+            field_type: Some(WidgetFieldType::Checkbox { checked: true }),
+            field_name: Some("AcceptTerms".to_string()),
+            field_value: Some("Yes".to_string()),
+            default_value: None,
+            field_flags: None,
+            options: None,
+            appearance_state: Some("Yes".to_string()),
+            raw_dict: None,
+        };
+
+        assert_eq!(annot.subtype_enum, AnnotationSubtype::Widget);
+        match &annot.field_type {
+            Some(WidgetFieldType::Checkbox { checked }) => assert!(*checked),
+            _ => panic!("Expected Checkbox field type"),
+        }
+        assert_eq!(annot.appearance_state, Some("Yes".to_string()));
+    }
+
+    #[test]
+    fn test_widget_choice_annotation() {
+        let annot = Annotation {
+            annotation_type: "Annot".to_string(),
+            subtype: Some("Widget".to_string()),
+            subtype_enum: AnnotationSubtype::Widget,
+            contents: None,
+            rect: Some([100.0, 500.0, 250.0, 520.0]),
+            author: None,
+            creation_date: None,
+            modification_date: None,
+            subject: None,
+            destination: None,
+            action: None,
+            quad_points: None,
+            color: None,
+            opacity: None,
+            flags: AnnotationFlags::empty(),
+            border: None,
+            interior_color: None,
+            field_type: Some(WidgetFieldType::Choice {
+                options: vec![
+                    "Option A".to_string(),
+                    "Option B".to_string(),
+                    "Option C".to_string(),
+                ],
+                selected: Some("Option B".to_string()),
+            }),
+            field_name: Some("Selection".to_string()),
+            field_value: Some("Option B".to_string()),
+            default_value: Some("Option A".to_string()),
+            field_flags: None,
+            options: Some(vec![
+                "Option A".to_string(),
+                "Option B".to_string(),
+                "Option C".to_string(),
+            ]),
+            appearance_state: None,
+            raw_dict: None,
+        };
+
+        assert_eq!(annot.subtype_enum, AnnotationSubtype::Widget);
+        match &annot.field_type {
+            Some(WidgetFieldType::Choice { options, selected }) => {
+                assert_eq!(options.len(), 3);
+                assert_eq!(selected, &Some("Option B".to_string()));
+            },
+            _ => panic!("Expected Choice field type"),
+        }
+        assert_eq!(annot.options.as_ref().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn test_widget_field_type_default() {
+        assert_eq!(WidgetFieldType::default(), WidgetFieldType::Text);
+    }
+
+    #[test]
+    fn test_parse_string_value() {
+        assert_eq!(
+            PdfDocument::parse_string_value(Some(&Object::String(b"Hello".to_vec()))),
+            Some("Hello".to_string())
+        );
+        assert_eq!(
+            PdfDocument::parse_string_value(Some(&Object::Name("MyName".to_string()))),
+            Some("MyName".to_string())
+        );
+        assert_eq!(
+            PdfDocument::parse_string_value(Some(&Object::Integer(42))),
+            Some("42".to_string())
+        );
+        assert_eq!(PdfDocument::parse_string_value(None), None);
+    }
+
+    #[test]
+    fn test_parse_options_array() {
+        let arr = vec![
+            Object::String(b"Option 1".to_vec()),
+            Object::String(b"Option 2".to_vec()),
+        ];
+        let result = PdfDocument::parse_options_array(Some(&Object::Array(arr)));
+        assert!(result.is_some());
+        let opts = result.unwrap();
+        assert_eq!(opts.len(), 2);
+        assert_eq!(opts[0], "Option 1");
+        assert_eq!(opts[1], "Option 2");
+
+        // Test empty array
+        let empty: Vec<Object> = vec![];
+        assert!(PdfDocument::parse_options_array(Some(&Object::Array(empty))).is_none());
+
+        // Test None
+        assert!(PdfDocument::parse_options_array(None).is_none());
     }
 }

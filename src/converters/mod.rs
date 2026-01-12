@@ -37,6 +37,7 @@
 pub mod formula_renderer;
 pub mod html;
 pub mod markdown;
+pub mod office;
 pub mod table_formatter;
 pub mod text_post_processor;
 pub mod whitespace;
@@ -50,6 +51,11 @@ pub use markdown::MarkdownConverter;
 pub use table_formatter::MarkdownTableFormatter;
 pub use text_post_processor::TextPostProcessor;
 pub use whitespace::{cleanup_markdown, normalize_whitespace, remove_page_artifacts};
+
+// Re-export Office conversion types (always available, but stubs without feature)
+#[cfg(feature = "office")]
+pub use office::{DocxConverter, PptxConverter, XlsxConverter};
+pub use office::{Margins, OfficeConfig, OfficeConverter};
 
 // Re-export BoldMarkerBehavior from pipeline config (single source of truth)
 pub use crate::pipeline::config::BoldMarkerBehavior;

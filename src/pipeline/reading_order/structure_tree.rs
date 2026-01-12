@@ -5,7 +5,7 @@
 
 use crate::error::Result;
 use crate::layout::TextSpan;
-use crate::pipeline::OrderedTextSpan;
+use crate::pipeline::{OrderedTextSpan, ReadingOrderInfo};
 
 use super::{GeometricStrategy, ReadingOrderContext, ReadingOrderStrategy};
 
@@ -89,17 +89,23 @@ impl ReadingOrderStrategy for StructureTreeStrategy {
         let mut result = Vec::new();
         let mut reading_order = 0;
 
-        // Add tagged spans
+        // Add tagged spans with StructureTree source
         for (span, _) in with_mcid {
-            result.push(OrderedTextSpan::new(span, reading_order));
+            result.push(OrderedTextSpan::with_info(
+                span,
+                reading_order,
+                ReadingOrderInfo::structure_tree(),
+            ));
             reading_order += 1;
         }
 
-        // Add untagged spans using simple ordering
+        // Add untagged spans using fallback ordering with Fallback source
         if !without_mcid.is_empty() {
             let untagged_ordered = self.fallback.apply(without_mcid, context)?;
             for mut ordered_span in untagged_ordered {
                 ordered_span.reading_order = reading_order;
+                // Mark as fallback since these spans lack structure tree info
+                ordered_span.order_info = ReadingOrderInfo::fallback();
                 result.push(ordered_span);
                 reading_order += 1;
             }

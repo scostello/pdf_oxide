@@ -17,10 +17,11 @@
 
 //! # PDF Oxide
 //!
-//! Production-grade PDF parsing in Rust: 47.9× faster than PyMuPDF4LLM with PDF spec compliance.
+//! Production-grade PDF toolkit in Rust: 47.9× faster than PyMuPDF4LLM with PDF spec compliance.
 //!
-//! ## Core Features (v0.2.0)
+//! ## Core Features
 //!
+//! ### Reading & Extraction
 //! - **PDF Spec Compliance**: ISO 32000-1:2008 sections 9, 14.7-14.8
 //! - **Text Extraction**: 5-level character-to-Unicode priority (§9.10.2)
 //! - **Reading Order**: 4 pluggable strategies (XY-Cut, Structure Tree, Geometric, Simple)
@@ -28,14 +29,29 @@
 //! - **OCR Support**: DBNet++ detection + SVTR recognition with smart auto-detection
 //! - **Complex Scripts**: RTL (Arabic/Hebrew), CJK (Japanese/Korean/Chinese), Devanagari, Thai
 //! - **Format Conversion**: Markdown, HTML, PlainText, TOC
-//! - **Pluggable Architecture**: Trait-based design for extensibility
+//!
+//! ### Writing & Creation (v0.3.0)
+//! - **PDF Generation**: Fluent DocumentBuilder API for programmatic PDF creation
+//! - **Format Conversion**: Markdown → PDF, HTML → PDF, Plain Text → PDF
+//! - **Advanced Graphics**: Path operations, image embedding, table generation
+//! - **Font Embedding**: Automatic font subsetting for compact output
+//! - **Interactive Forms**: Fillable forms with text fields, checkboxes, radio buttons, dropdowns
+//!
+//! ### Editing (v0.3.0)
+//! - **DOM-like API**: Query and modify PDF content with strongly-typed wrappers
+//! - **Element Modification**: Find and replace text, modify images, paths, tables
+//! - **Page Operations**: Add, remove, reorder, merge pages
+//! - **Metadata Editing**: Title, author, subject, keywords
+//! - **Incremental Saves**: Efficient appending without full rewrite
+//!
+//! ## Architecture
+//! - **Pluggable Design**: Trait-based extensibility for strategies and converters
 //! - **Python Bindings**: Full API via PyO3
+//! - **Symmetric Read/Write**: Unified ContentElement model for extraction and generation
 //!
-//! ## Planned for v0.3.0+
+//! ## Planned for v0.4.0+
 //!
-//! - **Bidirectional**: PDF generation from Markdown/HTML (v0.3.0)
-//! - **Tables**: Extract and generate tables (v0.4.0)
-//! - **Forms**: Interactive fillable form support (v0.4.0)
+//! - **Digital Signatures**: Full signing and verification (foundation in v0.3.0)
 //! - **Advanced**: Figures, citations, annotations, accessibility (v0.5.0+)
 //!
 //! ## Quick Start - Rust
@@ -61,18 +77,18 @@
 //! println!("{}", markdown);
 //! # Ok(())
 //! # }
-//! ```ignore
+//! ```
 //!
 //! ## Quick Start - Python
 //!
-//! ```python
+//! ```text
 //! from pdf_oxide import PdfDocument
 //!
 //! # Open and extract with automatic reading order
 //! doc = PdfDocument("paper.pdf")
 //! markdown = doc.to_markdown(0)
 //! print(markdown)
-//! ```ignore
+//! ```
 //!
 //! ## License
 //!
@@ -120,7 +136,11 @@ pub mod text;
 pub mod images;
 
 // Document structure
+/// Core annotation types and enums per PDF spec
+pub mod annotation_types;
 pub mod annotations;
+/// Content elements for PDF generation
+pub mod elements;
 pub mod outline;
 /// PDF logical structure (Tagged PDFs)
 pub mod structure;
@@ -130,6 +150,36 @@ pub mod converters;
 
 // Pipeline architecture for text extraction
 pub mod pipeline;
+
+// PDF writing/creation (v0.3.0)
+pub mod writer;
+
+// PDF editing (v0.3.0)
+pub mod editor;
+
+// Text search (v0.3.0)
+pub mod search;
+
+// Page rendering to images (optional, v0.3.0)
+#[cfg(feature = "rendering")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rendering")))]
+pub mod rendering;
+
+// Debug visualization for PDF analysis (optional, v0.3.0)
+#[cfg(feature = "rendering")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rendering")))]
+pub mod debug;
+
+// Digital signatures (optional, v0.3.0)
+#[cfg(feature = "signatures")]
+#[cfg_attr(docsrs, doc(cfg(feature = "signatures")))]
+pub mod signatures;
+
+// PDF/A compliance validation (v0.3.0)
+pub mod compliance;
+
+// High-level API (v0.3.0)
+pub mod api;
 
 // Re-export specific types from pipeline for use by converters
 pub use pipeline::XYCutStrategy;
@@ -155,6 +205,12 @@ mod python;
 pub mod wasm;
 
 // Re-exports
+pub use annotation_types::{
+    AnnotationBorderStyle, AnnotationColor, AnnotationFlags, AnnotationSubtype, BorderEffectStyle,
+    BorderStyleType, CaretSymbol, FileAttachmentIcon, FreeTextIntent, HighlightMode,
+    LineEndingStyle, QuadPoint, ReplyType, StampType, TextAlignment, TextAnnotationIcon,
+    TextMarkupType, WidgetFieldType,
+};
 pub use annotations::{Annotation, LinkAction, LinkDestination};
 pub use config::{DocumentType, ExtractionProfile};
 pub use document::{ExtractedImageRef, ImageFormat, PdfDocument};

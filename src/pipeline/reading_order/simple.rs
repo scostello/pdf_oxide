@@ -2,7 +2,7 @@
 
 use crate::error::Result;
 use crate::layout::TextSpan;
-use crate::pipeline::OrderedTextSpan;
+use crate::pipeline::{OrderedTextSpan, ReadingOrderInfo};
 
 use super::{ReadingOrderContext, ReadingOrderStrategy};
 
@@ -43,7 +43,9 @@ impl ReadingOrderStrategy for SimpleStrategy {
         Ok(spans_with_index
             .into_iter()
             .enumerate()
-            .map(|(order, (_, span))| OrderedTextSpan::new(span, order))
+            .map(|(order, (_, span))| {
+                OrderedTextSpan::with_info(span, order, ReadingOrderInfo::simple())
+            })
             .collect())
     }
 

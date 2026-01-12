@@ -39,12 +39,14 @@
 //! }
 //! ```
 
+pub mod converter;
 mod parser;
 pub mod spatial_table_detector;
 pub mod table_extractor;
 pub mod traversal;
 pub mod types;
 
+pub use converter::StructureConverter;
 pub use parser::parse_structure_tree;
 pub use spatial_table_detector::{
     detect_tables_from_spans, DetectedTable, SpatialTableDetector, TableDetectionConfig,

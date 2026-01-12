@@ -44,19 +44,108 @@
 //! let bytes = writer.finish()?;
 //! ```
 
+mod acroform;
+mod annotation_builder;
+mod appearance_stream;
+pub mod barcode;
 mod content_stream;
 mod document_builder;
+mod embedded_files;
 mod font_manager;
+pub mod form_fields;
+mod freetext;
+mod graphics_state;
+mod image_handler;
+mod ink;
+pub mod layers;
+pub mod linearization;
 mod object_serializer;
+mod outline_builder;
+mod page_labels;
+mod page_template;
+mod pattern;
 mod pdf_writer;
+mod shading;
+mod shape_annotations;
+mod special_annotations;
+mod stamp;
+mod table_renderer;
+mod text_annotations;
+mod text_markup;
+mod watermark;
+mod xmp_metadata;
 
-pub use content_stream::{ContentStreamBuilder, ContentStreamOp};
+pub use acroform::AcroFormBuilder;
+pub use annotation_builder::{
+    Annotation, AnnotationBuilder, BorderStyle, HighlightMode, LinkAction, LinkAnnotation,
+};
+pub use appearance_stream::AppearanceStreamBuilder;
+pub use barcode::{
+    BarcodeGenerator, BarcodeOptions, BarcodeType, QrCodeOptions, QrErrorCorrection,
+};
+pub use content_stream::{
+    BlendMode, ContentStreamBuilder, ContentStreamOp, LineCap, LineJoin, PendingImage,
+    TextArrayItem,
+};
 pub use document_builder::{
     DocumentBuilder, DocumentMetadata, FluentPageBuilder, PageSize, TextAlign, TextConfig,
 };
-pub use font_manager::{FontFamily, FontInfo, FontManager, FontWeight, TextLayout};
+pub use embedded_files::{AFRelationship, EmbeddedFile, EmbeddedFilesBuilder};
+pub use font_manager::{
+    EmbeddedFont, EmbeddedFontManager, FontFamily, FontInfo, FontManager, FontWeight, TextLayout,
+};
+pub use form_fields::{
+    ButtonFieldFlags, CheckboxWidget, ChoiceFieldFlags, ChoiceOption, ComboBoxWidget, FieldFlags,
+    FormAction, FormAppearanceGenerator, FormFieldEntry, FormFieldWidget, ListBoxWidget,
+    PushButtonWidget, RadioButtonGroup, RadioButtonWidget, SubmitFormFlags, TextAlignment,
+    TextFieldFlags, TextFieldWidget,
+};
+pub use freetext::FreeTextAnnotation;
+pub use graphics_state::{ExtGStateBuilder, SoftMask, SoftMaskSubtype};
+pub use image_handler::{ColorSpace, ImageData, ImageFormat, ImageManager, ImagePlacement};
+pub use ink::InkAnnotation;
+pub use layers::{
+    Layer, LayerBuilder, LayerIntent, LayerMembership, LayerVisibility, VisibilityPolicy,
+};
+pub use linearization::{
+    HintTables, LinearizationAnalyzer, LinearizationConfig, LinearizationParams,
+    LinearizedPdfBuilder, ObjectInfo, PageOffsetEntry, PageOffsetHeader, SharedObjectEntry,
+    SharedObjectHeader,
+};
 pub use object_serializer::ObjectSerializer;
+pub use outline_builder::{
+    FitMode, OutlineBuildResult, OutlineBuilder, OutlineDestination, OutlineItem, OutlineStyle,
+};
+pub use page_labels::PageLabelsBuilder;
+pub use page_template::{
+    HFAlignment, HFElement, HFStyle, HeaderFooter, PageNumberFormat, PageTemplate, Placeholder,
+    PlaceholderContext,
+};
+pub use pattern::{
+    PatternPaintType, PatternPresets, PatternTilingType, ShadingPatternBuilder,
+    TilingPatternBuilder,
+};
 pub use pdf_writer::{PageBuilder, PdfWriter, PdfWriterConfig};
+pub use shading::{
+    ColorSpace as ShadingColorSpace, GradientPresets, GradientStop, LinearGradientBuilder,
+    RadialGradientBuilder,
+};
+pub use shape_annotations::{
+    CaptionPosition, LineAnnotation, PolygonAnnotation, PolygonType, ShapeAnnotation, ShapeType,
+};
+pub use special_annotations::{
+    CaretAnnotation, CaretSymbol, FileAttachmentAnnotation, FileAttachmentIcon, PopupAnnotation,
+    RedactAnnotation,
+};
+pub use stamp::{StampAnnotation, StampType};
+pub use table_renderer::{
+    Borders, CellAlign, CellPadding, CellPosition, CellVAlign, ColumnWidth, FontMetrics,
+    SimpleFontMetrics, Table, TableBorderStyle, TableCell, TableLayout, TableRow, TableStyle,
+};
+pub use text_annotations::TextAnnotation;
+pub use text_markup::TextMarkupAnnotation;
+pub use watermark::{FixedPrintSettings, WatermarkAnnotation};
+pub use xmp_metadata::{iso_timestamp, XmpWriter};
 
 use crate::elements::ContentElement;
 use crate::error::Result;

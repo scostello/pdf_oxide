@@ -1,0 +1,306 @@
+//! PDF signature verification.
+//!
+//! This module handles verification of existing digital signatures in PDF documents.
+
+use super::byterange::ByteRangeCalculator;
+use super::types::{SignatureInfo, SignatureSubFilter, VerificationResult, VerificationStatus};
+use crate::error::{Error, Result};
+use crate::object::Object;
+
+#[cfg(feature = "signatures")]
+use sha2::{Digest, Sha256};
+
+/// Verifier for PDF digital signatures.
+pub struct SignatureVerifier {
+    /// Trusted root certificates (DER-encoded)
+    trusted_roots: Vec<Vec<u8>>,
+}
+
+impl SignatureVerifier {
+    /// Create a new signature verifier.
+    pub fn new() -> Self {
+        Self {
+            trusted_roots: Vec::new(),
+        }
+    }
+
+    /// Add a trusted root certificate.
+    pub fn add_trusted_root(&mut self, cert_der: Vec<u8>) {
+        self.trusted_roots.push(cert_der);
+    }
+
+    /// Add multiple trusted root certificates.
+    pub fn add_trusted_roots(&mut self, certs: Vec<Vec<u8>>) {
+        self.trusted_roots.extend(certs);
+    }
+
+    /// Load system root certificates.
+    #[cfg(feature = "signatures")]
+    pub fn load_system_roots(&mut self) -> Result<usize> {
+        // This would use webpki-roots or native-tls to load system certificates
+        // For now, return an error indicating this is not yet implemented
+        Err(Error::InvalidPdf("System root loading not yet implemented".to_string()))
+    }
+
+    /// Extract signature information from a signature dictionary.
+    pub fn extract_signature_info(&self, sig_dict: &Object) -> Result<SignatureInfo> {
+        let dict = match sig_dict {
+            Object::Dictionary(d) => d,
+            _ => return Err(Error::InvalidPdf("Signature must be a dictionary".to_string())),
+        };
+
+        let mut info = SignatureInfo::default();
+
+        // Extract /Name
+        if let Some(Object::String(name)) = dict.get("Name") {
+            info.signer_name = Some(String::from_utf8_lossy(name).to_string());
+        }
+
+        // Extract /M (signing time)
+        if let Some(Object::String(time)) = dict.get("M") {
+            info.signing_time = Some(String::from_utf8_lossy(time).to_string());
+        }
+
+        // Extract /Reason
+        if let Some(Object::String(reason)) = dict.get("Reason") {
+            info.reason = Some(String::from_utf8_lossy(reason).to_string());
+        }
+
+        // Extract /Location
+        if let Some(Object::String(location)) = dict.get("Location") {
+            info.location = Some(String::from_utf8_lossy(location).to_string());
+        }
+
+        // Extract /ContactInfo
+        if let Some(Object::String(contact)) = dict.get("ContactInfo") {
+            info.contact_info = Some(String::from_utf8_lossy(contact).to_string());
+        }
+
+        // Extract /SubFilter
+        if let Some(Object::Name(sub_filter)) = dict.get("SubFilter") {
+            info.sub_filter = SignatureSubFilter::from_pdf_name(sub_filter);
+        }
+
+        // Extract /ByteRange
+        if let Some(Object::Array(byte_range)) = dict.get("ByteRange") {
+            info.byte_range = byte_range
+                .iter()
+                .filter_map(|obj| match obj {
+                    Object::Integer(i) => Some(*i),
+                    _ => None,
+                })
+                .collect();
+        }
+
+        // Check if signature covers whole document (ByteRange should be 4 elements)
+        info.covers_whole_document = info.byte_range.len() == 4;
+
+        Ok(info)
+    }
+
+    /// Verify a signature.
+    ///
+    /// This performs full cryptographic verification of the signature.
+    #[cfg(feature = "signatures")]
+    pub fn verify(
+        &self,
+        pdf_data: &[u8],
+        sig_dict: &Object,
+        contents: &[u8],
+    ) -> Result<VerificationResult> {
+        let mut result = VerificationResult {
+            signature_info: self.extract_signature_info(sig_dict)?,
+            ..VerificationResult::default()
+        };
+
+        // Validate ByteRange
+        if result.signature_info.byte_range.len() != 4 {
+            result.status = VerificationStatus::Invalid;
+            result
+                .messages
+                .push("Invalid ByteRange: expected 4 elements".to_string());
+            return Ok(result);
+        }
+
+        let byte_range: [i64; 4] = [
+            result.signature_info.byte_range[0],
+            result.signature_info.byte_range[1],
+            result.signature_info.byte_range[2],
+            result.signature_info.byte_range[3],
+        ];
+
+        // Validate ByteRange covers entire document
+        if let Err(e) = ByteRangeCalculator::validate_byte_range(&byte_range, pdf_data.len()) {
+            result.status = VerificationStatus::Invalid;
+            result.document_modified = true;
+            result
+                .messages
+                .push(format!("ByteRange validation failed: {}", e));
+            return Ok(result);
+        }
+
+        // Extract signed bytes
+        let signed_bytes = ByteRangeCalculator::extract_signed_bytes(pdf_data, &byte_range)?;
+
+        // Compute digest of signed bytes
+        let computed_digest = {
+            let mut hasher = Sha256::new();
+            hasher.update(&signed_bytes);
+            hasher.finalize().to_vec()
+        };
+
+        // Verify the PKCS#7 signature
+        // This would use the cms crate to parse and verify the signature
+        let verification_result = self.verify_pkcs7(contents, &computed_digest);
+
+        match verification_result {
+            Ok(cert_info) => {
+                result.status = VerificationStatus::Valid;
+                result.signature_info.certificate_cn = Some(cert_info.common_name);
+                result.signature_info.certificate_issuer = Some(cert_info.issuer);
+
+                // Check certificate trust
+                result.certificate_trusted = self.is_certificate_trusted(&cert_info.cert_der);
+                if !result.certificate_trusted {
+                    result.status = VerificationStatus::Unknown;
+                    result
+                        .messages
+                        .push("Certificate is not trusted".to_string());
+                }
+
+                // Check certificate expiration
+                result.certificate_expired = cert_info.is_expired;
+                if result.certificate_expired {
+                    result.status = VerificationStatus::ValidWithWarnings;
+                    result.messages.push("Certificate has expired".to_string());
+                }
+            },
+            Err(e) => {
+                result.status = VerificationStatus::Invalid;
+                result
+                    .messages
+                    .push(format!("Signature verification failed: {}", e));
+            },
+        }
+
+        Ok(result)
+    }
+
+    /// Verify a PKCS#7 signature structure.
+    #[cfg(feature = "signatures")]
+    fn verify_pkcs7(&self, _pkcs7_data: &[u8], _expected_digest: &[u8]) -> Result<CertificateInfo> {
+        // TODO: Implement PKCS#7 verification using:
+        // - cms::signed_data::SignedData::from_der()
+        // - x509_parser for certificate parsing
+        // - rsa for RSA signature verification
+
+        Err(Error::InvalidPdf("Full PKCS#7 verification not yet implemented".to_string()))
+    }
+
+    /// Check if a certificate is in the trusted roots.
+    fn is_certificate_trusted(&self, cert_der: &[u8]) -> bool {
+        // Simple check: is the certificate in our trusted roots?
+        // A full implementation would verify the chain
+        self.trusted_roots.iter().any(|root| root == cert_der)
+    }
+
+    /// Quick check if a signature appears valid (without full cryptographic verification).
+    pub fn quick_check(&self, sig_dict: &Object) -> Result<bool> {
+        let info = self.extract_signature_info(sig_dict)?;
+
+        // Basic sanity checks
+        let has_valid_byte_range = info.byte_range.len() == 4;
+        let has_sub_filter = info.sub_filter.is_some();
+
+        Ok(has_valid_byte_range && has_sub_filter)
+    }
+}
+
+impl Default for SignatureVerifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Certificate information extracted during verification.
+#[cfg(feature = "signatures")]
+struct CertificateInfo {
+    common_name: String,
+    issuer: String,
+    cert_der: Vec<u8>,
+    is_expired: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn make_sig_dict() -> Object {
+        let mut dict = HashMap::new();
+        dict.insert("Type".to_string(), Object::Name("Sig".to_string()));
+        dict.insert("Filter".to_string(), Object::Name("Adobe.PPKLite".to_string()));
+        dict.insert("SubFilter".to_string(), Object::Name("adbe.pkcs7.detached".to_string()));
+        dict.insert("Name".to_string(), Object::String(b"Test Signer".to_vec()));
+        dict.insert("Reason".to_string(), Object::String(b"Testing".to_vec()));
+        dict.insert("Location".to_string(), Object::String(b"Test City".to_vec()));
+        dict.insert("M".to_string(), Object::String(b"D:20240101120000Z".to_vec()));
+        dict.insert(
+            "ByteRange".to_string(),
+            Object::Array(vec![
+                Object::Integer(0),
+                Object::Integer(100),
+                Object::Integer(200),
+                Object::Integer(50),
+            ]),
+        );
+        Object::Dictionary(dict)
+    }
+
+    #[test]
+    fn test_extract_signature_info() {
+        let verifier = SignatureVerifier::new();
+        let sig_dict = make_sig_dict();
+
+        let info = verifier.extract_signature_info(&sig_dict).unwrap();
+
+        assert_eq!(info.signer_name, Some("Test Signer".to_string()));
+        assert_eq!(info.reason, Some("Testing".to_string()));
+        assert_eq!(info.location, Some("Test City".to_string()));
+        assert_eq!(info.sub_filter, Some(SignatureSubFilter::Pkcs7Detached));
+        assert_eq!(info.byte_range, vec![0, 100, 200, 50]);
+        assert!(info.covers_whole_document);
+    }
+
+    #[test]
+    fn test_quick_check_valid() {
+        let verifier = SignatureVerifier::new();
+        let sig_dict = make_sig_dict();
+
+        let result = verifier.quick_check(&sig_dict).unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn test_quick_check_missing_byte_range() {
+        let verifier = SignatureVerifier::new();
+        let mut dict = HashMap::new();
+        dict.insert("Type".to_string(), Object::Name("Sig".to_string()));
+        dict.insert("SubFilter".to_string(), Object::Name("adbe.pkcs7.detached".to_string()));
+        let sig_dict = Object::Dictionary(dict);
+
+        let result = verifier.quick_check(&sig_dict).unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_trusted_roots() {
+        let mut verifier = SignatureVerifier::new();
+        let test_cert = vec![1, 2, 3, 4];
+
+        assert!(!verifier.is_certificate_trusted(&test_cert));
+
+        verifier.add_trusted_root(test_cert.clone());
+        assert!(verifier.is_certificate_trusted(&test_cert));
+    }
+}

@@ -21,6 +21,18 @@ use std::path::Path;
 /// Maximum recursion depth for object resolution
 const MAX_RECURSION_DEPTH: u32 = 100;
 
+/// Page information for rendering.
+#[cfg(feature = "rendering")]
+#[derive(Debug, Clone)]
+pub struct PageInfo {
+    /// Media box defining the page boundaries
+    pub media_box: crate::geometry::Rect,
+    /// Crop box if specified (for visible area)
+    pub crop_box: Option<crate::geometry::Rect>,
+    /// Page rotation in degrees (0, 90, 180, 270)
+    pub rotation: i32,
+}
+
 /// PDF document.
 ///
 /// This structure represents an open PDF document, providing access to:
@@ -362,6 +374,32 @@ impl PdfDocument {
     /// ```
     pub fn version(&self) -> (u8, u8) {
         self.version
+    }
+
+    /// Get a reference to the trailer dictionary.
+    ///
+    /// The trailer dictionary contains important document metadata including:
+    /// - /Root: Reference to the catalog dictionary
+    /// - /Info: Reference to the document info dictionary (optional)
+    /// - /Size: Number of entries in the cross-reference table
+    /// - /Encrypt: Encryption dictionary (if encrypted)
+    /// - /ID: File identifier array
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use pdf_oxide::document::PdfDocument;
+    /// # let mut doc = PdfDocument::open("sample.pdf")?;
+    /// let trailer = doc.trailer();
+    /// if let Some(dict) = trailer.as_dict() {
+    ///     if let Some(info_ref) = dict.get("Info") {
+    ///         println!("Document has an Info dictionary");
+    ///     }
+    /// }
+    /// # Ok::<(), pdf_oxide::error::Error>(())
+    /// ```
+    pub fn trailer(&self) -> &Object {
+        &self.trailer
     }
 
     /// Scan the file to find an object by its header.
@@ -2397,6 +2435,50 @@ impl PdfDocument {
         spans
     }
 
+    /// Extract hierarchical content structure from a page.
+    ///
+    /// Returns the page's hierarchical content structure with all children populated.
+    /// For tagged PDFs with structure trees, returns the structure with extracted content.
+    /// For untagged PDFs, returns a synthetic hierarchy based on geometric analysis.
+    ///
+    /// # Arguments
+    ///
+    /// * `page_index` - The page to extract from (0-indexed)
+    ///
+    /// # Returns
+    ///
+    /// `Ok(Some(structure))` if structure is found or generated,
+    /// `Ok(None)` if no structure is available,
+    /// `Err` if an error occurs during extraction
+    ///
+    /// # PDF Spec Compliance
+    ///
+    /// - ISO 32000-1:2008, Section 14.7 - Logical Structure
+    /// - ISO 32000-1:2008, Section 14.8 - Tagged PDF
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use pdf_oxide::document::PdfDocument;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut doc = PdfDocument::open("example.pdf")?;
+    ///
+    /// // Extract hierarchical structure from first page
+    /// if let Some(structure) = doc.extract_hierarchical_content(0)? {
+    ///     println!("Document structure type: {}", structure.structure_type);
+    ///     println!("Number of children: {}", structure.children.len());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn extract_hierarchical_content(
+        &mut self,
+        page_index: usize,
+    ) -> Result<Option<crate::elements::StructureElement>> {
+        use crate::extractors::HierarchicalExtractor;
+        HierarchicalExtractor::extract_page(self, page_index)
+    }
+
     /// Get the raw content stream data for a page.
     ///
     /// This returns the decoded content stream bytes for the specified page.
@@ -2478,6 +2560,108 @@ impl PdfDocument {
         };
 
         Ok(content_data)
+    }
+
+    /// Get information about a page, including its dimensions.
+    ///
+    /// This is useful for rendering and layout calculations.
+    #[cfg(feature = "rendering")]
+    pub fn get_page_info(&mut self, page_index: usize) -> Result<PageInfo> {
+        let page = self.get_page(page_index)?;
+        let page_dict = page.as_dict().ok_or_else(|| Error::ParseError {
+            offset: 0,
+            reason: "Page is not a dictionary".to_string(),
+        })?;
+
+        // Helper to extract f32 from Integer or Real
+        fn obj_to_f32(obj: &Object) -> Option<f32> {
+            match obj {
+                Object::Integer(i) => Some(*i as f32),
+                Object::Real(r) => Some(*r as f32),
+                _ => None,
+            }
+        }
+
+        // Get MediaBox (required, may be inherited)
+        let media_box = page_dict
+            .get("MediaBox")
+            .and_then(|o| o.as_array())
+            .map(|arr| {
+                let x0 = arr.first().and_then(obj_to_f32).unwrap_or(0.0);
+                let y0 = arr.get(1).and_then(obj_to_f32).unwrap_or(0.0);
+                let x1 = arr.get(2).and_then(obj_to_f32).unwrap_or(612.0);
+                let y1 = arr.get(3).and_then(obj_to_f32).unwrap_or(792.0);
+                crate::geometry::Rect::from_points(x0, y0, x1, y1)
+            })
+            .unwrap_or(crate::geometry::Rect::from_points(
+                0.0, 0.0, 612.0, 792.0, // Letter size default
+            ));
+
+        // Get CropBox (optional, falls back to MediaBox)
+        let crop_box = page_dict
+            .get("CropBox")
+            .and_then(|o| o.as_array())
+            .map(|arr| {
+                let x0 = arr.first().and_then(obj_to_f32).unwrap_or(0.0);
+                let y0 = arr.get(1).and_then(obj_to_f32).unwrap_or(0.0);
+                let x1 = arr.get(2).and_then(obj_to_f32).unwrap_or(612.0);
+                let y1 = arr.get(3).and_then(obj_to_f32).unwrap_or(792.0);
+                crate::geometry::Rect::from_points(x0, y0, x1, y1)
+            });
+
+        // Get rotation (optional, default 0)
+        let rotation = page_dict
+            .get("Rotate")
+            .and_then(|o| match o {
+                Object::Integer(i) => Some(*i as i32),
+                _ => None,
+            })
+            .unwrap_or(0);
+
+        Ok(PageInfo {
+            media_box,
+            crop_box,
+            rotation,
+        })
+    }
+
+    /// Get the resources dictionary for a page.
+    ///
+    /// Resources contain fonts, images, patterns, and other objects
+    /// used when rendering the page.
+    #[cfg(feature = "rendering")]
+    pub fn get_page_resources(&mut self, page_index: usize) -> Result<Object> {
+        let page = self.get_page(page_index)?;
+        let page_dict = page.as_dict().ok_or_else(|| Error::ParseError {
+            offset: 0,
+            reason: "Page is not a dictionary".to_string(),
+        })?;
+
+        // Get Resources (required, may be inherited)
+        let resources = page_dict
+            .get("Resources")
+            .cloned()
+            .unwrap_or(Object::Dictionary(std::collections::HashMap::new()));
+
+        // If it's a reference, resolve it
+        if let Some(ref_val) = resources.as_reference() {
+            self.load_object(ref_val)
+        } else {
+            Ok(resources)
+        }
+    }
+
+    /// Resolve an object reference.
+    ///
+    /// This is useful when working with indirect object references
+    /// in content streams or resource dictionaries.
+    #[cfg(feature = "rendering")]
+    pub fn resolve_object(&mut self, obj: &Object) -> Result<Object> {
+        if let Some(ref_val) = obj.as_reference() {
+            self.load_object(ref_val)
+        } else {
+            Ok(obj.clone())
+        }
     }
 
     /// Load fonts from a Resources dictionary into the extractor.

@@ -321,6 +321,279 @@ def test_all_options_combined():
         pytest.skip("Test fixture 'simple.pdf' not available or invalid")
 
 
+# === PDF Creation Tests ===
+
+
+def test_pdf_from_markdown():
+    """Test creating PDF from Markdown."""
+    from pdf_oxide import Pdf
+
+    md_content = """# Test Document
+
+This is a **test** paragraph.
+
+## Section 1
+
+Some text content.
+"""
+    pdf = Pdf.from_markdown(md_content)
+    assert pdf is not None
+    # PDF should have some bytes
+    pdf_bytes = pdf.to_bytes()
+    assert isinstance(pdf_bytes, bytes)
+    assert len(pdf_bytes) > 0
+    # Should start with PDF header
+    assert pdf_bytes[:4] == b'%PDF'
+
+
+def test_pdf_from_markdown_with_options():
+    """Test creating PDF from Markdown with options."""
+    from pdf_oxide import Pdf
+
+    md_content = "# Hello World"
+    pdf = Pdf.from_markdown(
+        md_content,
+        title="Test Title",
+        author="Test Author",
+    )
+    assert pdf is not None
+    pdf_bytes = pdf.to_bytes()
+    assert len(pdf_bytes) > 0
+
+
+def test_pdf_from_html():
+    """Test creating PDF from HTML."""
+    from pdf_oxide import Pdf
+
+    html_content = """
+    <h1>Test Document</h1>
+    <p>This is a <strong>test</strong> paragraph.</p>
+    """
+    pdf = Pdf.from_html(html_content)
+    assert pdf is not None
+    pdf_bytes = pdf.to_bytes()
+    assert isinstance(pdf_bytes, bytes)
+    assert len(pdf_bytes) > 0
+    assert pdf_bytes[:4] == b'%PDF'
+
+
+def test_pdf_from_text():
+    """Test creating PDF from plain text."""
+    from pdf_oxide import Pdf
+
+    text_content = "Hello, World!\n\nThis is plain text."
+    pdf = Pdf.from_text(text_content)
+    assert pdf is not None
+    pdf_bytes = pdf.to_bytes()
+    assert len(pdf_bytes) > 0
+    assert pdf_bytes[:4] == b'%PDF'
+
+
+def test_pdf_save_to_file(tmp_path):
+    """Test saving PDF to a file."""
+    from pdf_oxide import Pdf
+
+    pdf = Pdf.from_text("Test content")
+    output_path = tmp_path / "output.pdf"
+    pdf.save(str(output_path))
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0
+
+
+# === Advanced Graphics Tests ===
+
+
+def test_color_creation():
+    """Test Color class creation."""
+    from pdf_oxide import Color
+
+    # Create from RGB values
+    color = Color(1.0, 0.0, 0.0)
+    assert color is not None
+
+    # Create from hex
+    color = Color.from_hex("#FF0000")
+    assert color is not None
+
+    color = Color.from_hex("00FF00")
+    assert color is not None
+
+
+def test_color_predefined():
+    """Test predefined colors."""
+    from pdf_oxide import Color
+
+    black = Color.black()
+    assert black is not None
+
+    white = Color.white()
+    assert white is not None
+
+    red = Color.red()
+    assert red is not None
+
+    green = Color.green()
+    assert green is not None
+
+    blue = Color.blue()
+    assert blue is not None
+
+
+def test_blend_modes():
+    """Test BlendMode constants."""
+    from pdf_oxide import BlendMode
+
+    # Test all blend modes are accessible
+    assert BlendMode.NORMAL() is not None
+    assert BlendMode.MULTIPLY() is not None
+    assert BlendMode.SCREEN() is not None
+    assert BlendMode.OVERLAY() is not None
+    assert BlendMode.DARKEN() is not None
+    assert BlendMode.LIGHTEN() is not None
+    assert BlendMode.COLOR_DODGE() is not None
+    assert BlendMode.COLOR_BURN() is not None
+    assert BlendMode.HARD_LIGHT() is not None
+    assert BlendMode.SOFT_LIGHT() is not None
+    assert BlendMode.DIFFERENCE() is not None
+    assert BlendMode.EXCLUSION() is not None
+
+
+def test_ext_gstate():
+    """Test ExtGState (transparency) builder."""
+    from pdf_oxide import ExtGState, BlendMode
+
+    # Create with fill alpha
+    gs = ExtGState().fill_alpha(0.5)
+    assert gs is not None
+
+    # Chained builder pattern
+    gs = ExtGState()\
+        .fill_alpha(0.5)\
+        .stroke_alpha(0.8)\
+        .blend_mode(BlendMode.MULTIPLY())
+    assert gs is not None
+
+
+def test_ext_gstate_presets():
+    """Test ExtGState preset methods."""
+    from pdf_oxide import ExtGState, BlendMode
+
+    semi = ExtGState.semi_transparent()
+    assert semi is not None
+
+    # Test creating with blend mode (instead of preset static methods)
+    multiply = ExtGState().blend_mode(BlendMode.MULTIPLY())
+    assert multiply is not None
+
+    screen = ExtGState().blend_mode(BlendMode.SCREEN())
+    assert screen is not None
+
+
+def test_linear_gradient():
+    """Test LinearGradient builder."""
+    from pdf_oxide import LinearGradient, Color
+
+    # Basic gradient
+    gradient = LinearGradient()\
+        .start(0.0, 0.0)\
+        .end(100.0, 100.0)\
+        .add_stop(0.0, Color.red())\
+        .add_stop(1.0, Color.blue())
+    assert gradient is not None
+
+
+def test_linear_gradient_presets():
+    """Test LinearGradient preset methods."""
+    from pdf_oxide import LinearGradient, Color
+
+    # Horizontal preset
+    gradient = LinearGradient.horizontal(100.0, Color.black(), Color.white())
+    assert gradient is not None
+
+    # Vertical preset
+    gradient = LinearGradient.vertical(100.0, Color.black(), Color.white())
+    assert gradient is not None
+
+    # Manual two-color gradient
+    gradient = LinearGradient()\
+        .add_stop(0.0, Color.black())\
+        .add_stop(1.0, Color.white())
+    assert gradient is not None
+
+
+def test_radial_gradient():
+    """Test RadialGradient builder."""
+    from pdf_oxide import RadialGradient, Color
+
+    gradient = RadialGradient()\
+        .inner_circle(50.0, 50.0, 0.0)\
+        .outer_circle(50.0, 50.0, 50.0)\
+        .add_stop(0.0, Color.white())\
+        .add_stop(1.0, Color.black())
+    assert gradient is not None
+
+
+def test_radial_gradient_centered():
+    """Test centered RadialGradient."""
+    from pdf_oxide import RadialGradient
+
+    gradient = RadialGradient.centered(50.0, 50.0, 50.0)
+    assert gradient is not None
+
+
+def test_line_cap():
+    """Test LineCap constants."""
+    from pdf_oxide import LineCap
+
+    assert LineCap.BUTT() is not None
+    assert LineCap.ROUND() is not None
+    assert LineCap.SQUARE() is not None
+
+
+def test_line_join():
+    """Test LineJoin constants."""
+    from pdf_oxide import LineJoin
+
+    assert LineJoin.MITER() is not None
+    assert LineJoin.ROUND() is not None
+    assert LineJoin.BEVEL() is not None
+
+
+def test_pattern_presets():
+    """Test PatternPresets static methods."""
+    from pdf_oxide import PatternPresets, Color
+
+    # Horizontal stripes
+    content = PatternPresets.horizontal_stripes(10.0, 10.0, 5.0, Color.red())
+    assert isinstance(content, bytes)
+    assert len(content) > 0
+
+    # Vertical stripes
+    content = PatternPresets.vertical_stripes(10.0, 10.0, 5.0, Color.blue())
+    assert isinstance(content, bytes)
+    assert len(content) > 0
+
+    # Checkerboard
+    content = PatternPresets.checkerboard(10.0, Color.white(), Color.black())
+    assert isinstance(content, bytes)
+    assert len(content) > 0
+
+    # Dots
+    content = PatternPresets.dots(10.0, 2.0, Color.red())
+    assert isinstance(content, bytes)
+    assert len(content) > 0
+
+    # Diagonal lines
+    content = PatternPresets.diagonal_lines(10.0, 0.5, Color.black())
+    assert isinstance(content, bytes)
+    assert len(content) > 0
+
+    # Crosshatch
+    content = PatternPresets.crosshatch(10.0, 0.5, Color.black())
+    assert isinstance(content, bytes)
+    assert len(content) > 0
+
+
 # Note: To run these tests successfully, you'll need to:
 # 1. Install maturin: pip install maturin
 # 2. Build the extension: maturin develop

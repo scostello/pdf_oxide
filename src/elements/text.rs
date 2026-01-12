@@ -85,7 +85,7 @@ impl From<TextSpan> for TextContent {
             },
             style: TextStyle {
                 weight: span.font_weight,
-                italic: false, // TextSpan doesn't track italic separately
+                italic: span.is_italic,
                 color: span.color,
                 underline: false,
                 strikethrough: false,
@@ -104,11 +104,16 @@ impl From<TextContent> for TextSpan {
             font_name: content.font.name,
             font_size: content.font.size,
             font_weight: content.style.weight,
+            is_italic: content.style.italic,
             color: content.style.color,
             mcid: None,
             sequence: content.reading_order.unwrap_or(0),
             split_boundary_before: false,
             offset_semantic: false,
+            char_spacing: 0.0,
+            word_spacing: 0.0,
+            horizontal_scaling: 100.0,
+            primary_detected: false,
         }
     }
 }
@@ -326,11 +331,16 @@ mod tests {
             font_name: "Times".to_string(),
             font_size: 12.0,
             font_weight: FontWeight::Bold,
+            is_italic: false,
             color: Color::black(),
             mcid: None,
             sequence: 3,
             split_boundary_before: false,
             offset_semantic: false,
+            char_spacing: 0.0,
+            word_spacing: 0.0,
+            horizontal_scaling: 100.0,
+            primary_detected: false,
         };
 
         let content: TextContent = span.into();

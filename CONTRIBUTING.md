@@ -95,7 +95,7 @@ pdf_oxide/
 
 ### 1. Pick a Task
 
-- Check [Issues](https://github.com/yfedoseev/pdf-library/issues)
+- Check [Issues](https://github.com/yfedoseev/pdf_oxide/issues)
 - Look for issues labeled `help-wanted` or `good-first-issue`
 - Comment on the issue to claim it
 

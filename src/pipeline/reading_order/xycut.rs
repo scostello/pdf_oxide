@@ -22,9 +22,10 @@
 //! Typical newspaper page: ~100 spans, < 5ms processing time
 //! Recursive depth: O(log n) for balanced columns
 
-use super::{OrderedTextSpan, ReadingOrderContext, ReadingOrderStrategy};
+use super::{ReadingOrderContext, ReadingOrderStrategy};
 use crate::error::Result;
 use crate::layout::TextSpan;
+use crate::pipeline::{OrderedTextSpan, ReadingOrderInfo};
 
 /// XY-Cut recursive spatial partitioning strategy.
 ///
@@ -347,11 +348,11 @@ impl ReadingOrderStrategy for XYCutStrategy {
 
         for group in groups {
             for span in group {
-                ordered.push(OrderedTextSpan {
-                    span: span.clone(),
-                    reading_order: order_index,
-                    group_id: None,
-                });
+                ordered.push(OrderedTextSpan::with_info(
+                    span.clone(),
+                    order_index,
+                    ReadingOrderInfo::xycut(),
+                ));
                 order_index += 1;
             }
         }

@@ -134,6 +134,7 @@ impl ImageFormat {
 
 /// Color space for images.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum ColorSpace {
     /// Grayscale (1 component)
     Gray,

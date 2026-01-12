@@ -2,7 +2,7 @@
 
 use crate::error::Result;
 use crate::layout::TextSpan;
-use crate::pipeline::OrderedTextSpan;
+use crate::pipeline::{OrderedTextSpan, ReadingOrderInfo};
 
 use super::{ReadingOrderContext, ReadingOrderStrategy};
 
@@ -187,7 +187,11 @@ impl ReadingOrderStrategy for GeometricStrategy {
             });
 
             for idx in column_sorted {
-                ordered.push(OrderedTextSpan::new(spans[idx].clone(), order));
+                ordered.push(OrderedTextSpan::with_info(
+                    spans[idx].clone(),
+                    order,
+                    ReadingOrderInfo::geometric(),
+                ));
                 order += 1;
             }
         }
