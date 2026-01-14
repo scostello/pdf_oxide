@@ -28,7 +28,7 @@ else:
 # Decode
 try:
     content = content_bytes.decode("latin-1")
-except:
+except Exception:
     content = str(content_bytes)
 
 print("=" * 80)

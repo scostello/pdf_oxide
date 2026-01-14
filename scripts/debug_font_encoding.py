@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Deep dive into font encoding for the problematic PDF."""
 
+import re
+
 import fitz  # PyMuPDF
 
 
@@ -25,19 +27,13 @@ for i, font in enumerate(fonts):
 
 # Get raw content stream
 content_stream = page.get_contents()
-if isinstance(content_stream, list):
-    content_bytes = b"".join(content_stream)
-else:
-    content_bytes = content_stream
-
+content_bytes = b"".join(content_stream) if isinstance(content_stream, list) else content_stream
 content = content_bytes.decode("latin-1", errors="replace")
 
 # Find the first text showing operation with "Fiscal"
 print("\n" + "=" * 80)
 print("SEARCHING FOR 'Fiscal' IN CONTENT STREAM")
 print("=" * 80)
-
-import re
 
 
 # Look for TJ arrays or Tj operations
@@ -70,15 +66,15 @@ for i, match in enumerate(tj_arrays[:5]):
                 try:
                     text = byte_array.decode("utf-16-be")
                     print(f"    UTF-16 BE: '{text[:50]}'")
-                except:
+                except Exception:
                     pass
                 # Try latin-1 decode
                 try:
                     text = byte_array.decode("latin-1")
                     print(f"    Latin-1: '{text[:50]}'")
-                except:
+                except Exception:
                     pass
-            except:
+            except Exception:
                 pass
 
     # Try to extract parenthesized strings

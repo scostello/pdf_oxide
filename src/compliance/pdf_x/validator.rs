@@ -752,6 +752,7 @@ impl PdfXValidator {
     }
 
     /// Recursively find a page in the page tree.
+    #[allow(clippy::only_used_in_recursion)]
     fn get_page_from_tree(
         &self,
         document: &mut PdfDocument,
@@ -825,6 +826,7 @@ impl PdfXValidator {
         Err(Error::InvalidPdf(format!("Page {} not found", target_index)))
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn get_colorspace_name(&self, cs: &Object, document: &mut PdfDocument) -> Result<String> {
         match cs {
             Object::Name(n) => Ok(n.clone()),

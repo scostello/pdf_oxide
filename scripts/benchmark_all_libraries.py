@@ -23,6 +23,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from typing import TypedDict
 
 
 # Test if libraries are available
@@ -53,7 +54,7 @@ def check_library_availability():
 
     # Check for our Rust library
     try:
-        import pdf_oxide
+        import pdf_oxide  # noqa: F401
 
         AVAILABLE_LIBRARIES["pdf_oxide"] = True
         print("✓ pdf_oxide (Rust) available")
@@ -169,7 +170,7 @@ def extract_with_pikepdf(pdf_path, output_path):
     text_parts = []
 
     with pikepdf.open(str(pdf_path)) as pdf:
-        for page in pdf.pages:
+        for _ in pdf.pages:
             # Very basic extraction - pikepdf doesn't have built-in text extraction
             text_parts.append(f"[Page {len(text_parts) + 1}]")
 
@@ -260,7 +261,20 @@ def benchmark_library(library_name, pdf_files, output_dir):
     print(f"Benchmarking: {library_name}")
     print(f"{'=' * 60}")
 
-    results = {
+    class BenchmarkResults(TypedDict, total=False):
+        library: str
+        total_pdfs: int
+        successful: int
+        failed: int
+        total_time: float
+        total_output_size: int
+        errors: list[str]
+        times: list[float]
+        avg_time: float
+        avg_output_size: float
+        success_rate: float
+
+    results: BenchmarkResults = {
         "library": library_name,
         "total_pdfs": len(pdf_files),
         "successful": 0,

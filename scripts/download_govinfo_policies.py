@@ -119,7 +119,7 @@ def download_package_pdf(collection_code, year, package_id, output_dir, collecti
                     f.write(data)
 
                 return True, len(data)
-            except:
+            except Exception:
                 return False, "http_404"
         return False, f"http_{e.code}"
     except Exception as e:
@@ -147,7 +147,6 @@ def download_federal_register_direct(output_dir, max_docs=50):
             if successful >= max_docs:
                 break
 
-            issue_id = f"fr-{year}-{issue_num:05d}"
             pdf_url = f"https://www.govinfo.gov/content/pkg/FR-{year}-{issue_num:05d}/pdf/FR-{year}-{issue_num:05d}.pdf"
 
             output_file = output_dir / f"Federal_Register_{year}_{issue_num:05d}.pdf"
