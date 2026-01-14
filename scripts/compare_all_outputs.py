@@ -29,13 +29,13 @@ class OutputComparator:
         try:
             with open(our_file, encoding="utf-8") as f:
                 our_content = f.read()
-        except:
+        except Exception:
             our_content = ""
 
         try:
             with open(pymupdf_file, encoding="utf-8") as f:
                 pymupdf_content = f.read()
-        except:
+        except Exception:
             pymupdf_content = ""
 
         # Basic metrics
@@ -160,7 +160,7 @@ class OutputComparator:
 
         # Category breakdown
         stats["by_category"] = {}
-        categories = set(r["category"] for r in self.results)
+        categories = {r["category"] for r in self.results}
         for cat in categories:
             cat_results = [r for r in self.results if r["category"] == cat]
             stats["by_category"][cat] = {

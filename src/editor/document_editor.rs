@@ -5388,6 +5388,7 @@ impl DocumentEditor {
     }
 
     /// Serialize a PDF Object to bytes.
+    #[allow(clippy::only_used_in_recursion)]
     fn serialize_object(&self, output: &mut Vec<u8>, obj: &crate::object::Object) {
         use crate::object::Object;
         match obj {

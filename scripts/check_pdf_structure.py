@@ -6,7 +6,6 @@ Tagged PDFs contain explicit reading order information in their structure tree
 that we should be using instead of heuristic layout analysis!
 """
 
-
 import pypdf
 
 

@@ -25,12 +25,8 @@ from pdf_oxide import PdfDocument
 
 def main():
     """Main example function."""
-    # Get PDF path from command line or use default
-    if len(sys.argv) > 1:
-        pdf_path = sys.argv[1]
-    else:
-        # Use a default test file if available
-        pdf_path = "tests/fixtures/simple.pdf"
+    # Get PDF path from command line or use default test file if available
+    pdf_path = sys.argv[1] if len(sys.argv) > 1 else "tests/fixtures/simple.pdf"
 
     if not Path(pdf_path).exists():
         print(f"Error: File '{pdf_path}' not found")

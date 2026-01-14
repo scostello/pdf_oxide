@@ -5,6 +5,8 @@ Convert pre-trained transformer models to ONNX format for CPU inference.
 This script downloads pre-trained models from HuggingFace, converts them to ONNX,
 and quantizes them to INT8 for faster CPU inference.
 
+Note: This script requires python >= 3.10 because of onnxruntime needs it.
+
 Usage:
     python scripts/convert_models.py --model layout-reader
     python scripts/convert_models.py --model heading-classifier
@@ -205,17 +207,14 @@ Note:
 
     success = True
 
-    if args.model in ["layout-reader", "all"]:
-        if not convert_layout_reader():
-            success = False
+    if args.model in ["layout-reader", "all"] and (not convert_layout_reader()):
+        success = False
 
-    if args.model in ["heading-classifier", "all"]:
-        if not convert_heading_classifier():
-            success = False
+    if args.model in ["heading-classifier", "all"] and (not convert_heading_classifier()):
+        success = False
 
-    if not args.skip_verify:
-        if not verify_models():
-            success = False
+    if (not args.skip_verify) and (not verify_models()):
+        success = False
 
     print("\n" + "=" * 60)
     if success:

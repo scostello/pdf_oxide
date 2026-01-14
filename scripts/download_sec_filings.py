@@ -60,21 +60,24 @@ def fetch_company_filings(cik, filing_type, max_filings=5):
 
         results = []
         for i, form in enumerate(forms):
-            if form == filing_type and len(results) < max_filings:
+            if (
+                form == filing_type
+                and len(results) < max_filings
                 # Check if it's a PDF
-                if primary_documents[i].endswith(".pdf"):
-                    accession = accession_numbers[i].replace("-", "")
-                    doc_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession}/{primary_documents[i]}"
+                and primary_documents[i].endswith(".pdf")
+            ):
+                accession = accession_numbers[i].replace("-", "")
+                doc_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession}/{primary_documents[i]}"
 
-                    results.append(
-                        {
-                            "company_cik": cik,
-                            "form_type": form,
-                            "filing_date": filing_dates[i],
-                            "url": doc_url,
-                            "filename": primary_documents[i],
-                        }
-                    )
+                results.append(
+                    {
+                        "company_cik": cik,
+                        "form_type": form,
+                        "filing_date": filing_dates[i],
+                        "url": doc_url,
+                        "filename": primary_documents[i],
+                    }
+                )
 
         return results
 

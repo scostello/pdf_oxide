@@ -47,6 +47,14 @@ cargo bench
 
 For detailed benchmarking, see `../test_datasets/` and comparison scripts.
 
+## Running Python Scripts
+```bash
+# Install corresponding python dependencies
+uv sync --group {group_name} # Refer to [dependency-groups] in pyproject.toml
+uv run scripts/{script_name}.py {args}
+```
+
+
 ## Development
 
 These scripts are for development purposes and are not part of the public API.

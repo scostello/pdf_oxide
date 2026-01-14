@@ -54,15 +54,23 @@ uv tool install ruff
 uv tool install ty
 
 # Install python dependencies
-pdm sync
+uv sync --group test
+
+# If you need to run scripts, please add the responsive group
+# e.g., if you need to run "benchark_all_libraries.py" script, you should run
+uv sync --group benchmark
+# All the groups could be found in [dependency-groups] in "pyproject.toml"
+
+# If you just need production code, please run
+uv sync
 
 # Build python bindings
 maturin develop --uv
 
-# format code
+# format code (would format both python and rust code)
 pdm fmt
 
-# lint code
+# lint code (would lint both python and rust code)
 pdm lint
 ```
 

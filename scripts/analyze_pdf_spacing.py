@@ -12,7 +12,6 @@ This script will:
 This will tell us WHY we're inserting spaces incorrectly.
 """
 
-
 import fitz  # PyMuPDF
 
 

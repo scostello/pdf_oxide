@@ -16,6 +16,7 @@ import shutil
 import sys
 import time
 from pathlib import Path
+from typing import TypedDict
 
 
 def backup_old_results(output_dir):
@@ -61,7 +62,20 @@ def benchmark_pdf_oxide(pdf_files, output_dir):
     print("Benchmarking: pdf_oxide (UPDATED)")
     print(f"{'=' * 60}")
 
-    results = {
+    class BenchmarkResult(TypedDict, total=False):
+        library: str
+        total_pdfs: int
+        successful: int
+        failed: int
+        total_time: float
+        total_output_size: int
+        errors: list[str]
+        times: list[float]
+        avg_time: float
+        avg_output_size: float
+        success_rate: float
+
+    results: BenchmarkResult = {
         "library": "pdf_oxide",
         "total_pdfs": len(pdf_files),
         "successful": 0,
@@ -205,7 +219,7 @@ def main():
 
     # Check if pdf_oxide is available
     try:
-        import pdf_oxide
+        import pdf_oxide  # noqa: F401
 
         print("✓ pdf_oxide (Rust) available\n")
     except ImportError:

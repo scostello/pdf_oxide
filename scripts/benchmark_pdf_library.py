@@ -16,13 +16,35 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import TypedDict
 
 
 def benchmark_pdf_oxide(pdf_files, output_dir):
     """Benchmark our Rust PDF library."""
     import pdf_oxide
 
-    results = {
+    class BenchmarkResult(TypedDict, total=False):
+        library: str
+        version: str
+        timestamp: str
+        total_pdfs: int
+        successful: int
+        failed: int
+        total_time: float
+        total_output_size: int
+        total_chars: int
+        total_pages: int
+        errors: list[str]
+        times: list[float]
+        per_pdf_stats: list[dict]
+        avg_time: float
+        avg_time_per_page: float
+        avg_output_size: float
+        avg_chars: float
+        success_rate: float
+        time_percentiles: dict[str, float]
+
+    results: BenchmarkResult = {
         "library": "pdf_oxide",
         "version": "Phase 1 + Phase 2 (Adaptive Heuristics)",
         "timestamp": datetime.now().isoformat(),
@@ -249,7 +271,7 @@ def main():
 
     # Check if library is available
     try:
-        import pdf_oxide
+        import pdf_oxide  # noqa: F401
 
         print("✓ pdf_oxide available")
     except ImportError:

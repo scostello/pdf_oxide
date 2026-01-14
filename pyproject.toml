@@ -37,11 +37,39 @@ Documentation = "https://docs.rs/pdf_oxide"
 Repository = "https://github.com/yfedoseev/pdf_oxide"
 "Bug Tracker" = "https://github.com/yfedoseev/pdf_oxide/issues"
 
-[project.optional-dependencies]
+[dependency-groups]
 test = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
 ]
+benchmark = [
+    "pikepdf>=9.2.1",
+    "borb>=3.0.4",
+    "pymupdf>=1.24.11",
+    "pymupdf4llm>=0.0.17",
+    "pdfplumber>=0.11.5",
+    "pypdf>=5.9.0",
+    "pdfminer>=20191125",
+    "pypdfium2>=5.3.0",
+]
+seg-edgar = [
+    "sec-edgar-downloader>=5.0.3",
+]
+convert-models = [
+    "torch>=2.4.1",
+    "onnxruntime>=1.20.1",
+    "transformers>=4.46.3",
+]
+inspect-tj-array = [
+    "pymupdf>=1.24.11",
+]
+check-pdf-structure = [
+    "pypdf",
+]
+analyze-pdf-spacing = [
+    "pymupdf>=1.24.11",
+]
+
 
 [tool.maturin]
 features = ["python"]
@@ -77,7 +105,6 @@ select = [
     "F",      # pyflakes
     "I",      # isort (import sorting)
     "N",      # pep8-naming
-    "UP",     # pyupgrade (modernize Python code)
     "B",      # flake8-bugbear (find likely bugs)
     "C4",     # flake8-comprehensions
     "SIM",    # flake8-simplify
@@ -88,6 +115,7 @@ select = [
 ignore = [
     "E501",   # Line too long (handled by formatter)
     "B008",   # Do not perform function calls in argument defaults
+    "UP",     # pyupgrade (modernize Python code) # compatible with py38
 ]
 
 # Allow unused variables when underscore-prefixed
@@ -110,6 +138,19 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "lf"
 
+[tool.ty.rules]
+possibly-missing-attribute = "error"
+possibly-missing-import = "error"
+possibly-unresolved-reference = "warn"
+
+[tool.ty.src]
+# Linting codes in `scripts` needs lots of dependencies, so we don't include `scripts` here
+# Instead, we could let .py files in `scripts` be checked when they are changed by pre-commit
+include = ["python/pdf_oxide"]
+
+[tool.ty.environment]
+python = "./.venv"
+
 [tool.pdm.scripts]
 fmt = {composite = ["cargo fmt", "ruff check . --select I --fix", "ruff format ."]}
-lint = {composite = ["cargo check", "cargo clippy", "ruff check . --fix"]}
+lint = {composite = ["cargo check", "cargo clippy -- -D warnings", "ruff check . --fix", "ty check ."]}

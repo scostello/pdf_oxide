@@ -78,15 +78,15 @@ COMPANIES = [
 ]
 
 
-def download_filings(
-    ticker, company_name, output_dir, filing_types=["10-K", "10-Q", "8-K"], limit_per_type=2
-):
+def download_filings(ticker, company_name, output_dir, filing_types=None, limit_per_type=2):
     """Download filings for a single company."""
     print(f"\n{company_name} ({ticker})")
 
     dl = Downloader("PDFLibraryTesting", "testing@pdf-library.dev", output_dir)
 
     downloaded_count = 0
+    if filing_types is None:
+        filing_types = ["10-K", "10-Q", "8-K"]
     for filing_type in filing_types:
         try:
             print(f"  Downloading {filing_type} filings...")
@@ -129,7 +129,6 @@ def main():
     print()
 
     total_downloaded = 0
-    filings_per_company = len(filing_types) * args.limit_per_type
 
     for ticker, company_name in COMPANIES:
         if total_downloaded >= args.max:
