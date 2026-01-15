@@ -272,4 +272,4 @@ tests/golden_files/
 .pdm-python
 
 # uv-python
-.python-version
+.python-versionrust_out
