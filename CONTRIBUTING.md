@@ -43,6 +43,8 @@ This project adheres to the [Contributor Covenant Code of Conduct](CODE_OF_CONDU
 - **maturin**: Python packaging
   ```bash
   pip install maturin
+  # or
+  uv tool install maturin
   ```
 
 ## Development Setup
@@ -75,6 +77,20 @@ This project adheres to the [Contributor Covenant Code of Conduct](CODE_OF_CONDU
    - Library tests (`cargo test --lib`)
    - Integration tests (`cargo test --tests`)
    - Documentation tests (`cargo test --doc`)
+
+   **Alternative**:
+   You can use [prek](https://prek.j178.dev/) to pre-commit your codes every time you commit automatically..
+   ```bash
+   # Install prek
+   cargo binstall prek
+   # or
+   uv tool install maturin
+   # or
+   pip install prek
+
+   # Install in your project
+   prek install
+   ```
 
 ## Project Structure
 
