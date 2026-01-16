@@ -96,7 +96,7 @@ pdf_oxide/
 ├── python/                   # Python bindings
 │
 ├── Cargo.toml                # Project configuration
-├── CLAUDE.md                 # Claude Code context
+├── AGENTS.md                 # Agents context
 ├── CONTRIBUTING.md           # Contribution guide
 └── README.md                 # Project overview
 ```
@@ -173,14 +173,14 @@ cargo flamegraph --bench benchmark_name
 
 ### Project Context
 
-**CLAUDE.md**: Main project configuration
+**AGENTS.md**: Main project configuration
 - Coding standards
 - Architecture guidelines
 - Testing requirements
 - Performance targets
 - Security guidelines
 
-Read by Claude Code automatically to understand project context.
+Read by Agents automatically to understand project context.
 
 ### Custom Slash Commands
 
@@ -691,7 +691,7 @@ Brief description of the feature or fix being implemented.
 
 ### Documentation
 
-- [CLAUDE.md](../CLAUDE.md) - Project context for Claude Code
+- [AGENTS.md](../AGENTS.md) - Project context for Agents
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System architecture overview
 - [CONTRIBUTING.md](../CONTRIBUTING.md) - Contribution guidelines
 - [ML_INTEGRATION.md](ML_INTEGRATION.md) - OCR and ML features guide
@@ -724,7 +724,7 @@ Brief description of the feature or fix being implemented.
 ### Before Starting
 
 1. Read ARCHITECTURE.md for module structure
-2. Check CLAUDE.md for coding standards
+2. Check AGENTS.md for coding standards
 3. Review similar implementations
 4. Consult PDF specification (docs/spec/pdf.md)
 
