@@ -21,7 +21,7 @@ KEEP_FILES=(
     "README.md"
     "CHANGELOG.md"
     "CONTRIBUTING.md"
-    "CLAUDE.md"
+    "AGENTS.md"
     "Cargo.toml"
     "Cargo.lock"
     "pyproject.toml"
